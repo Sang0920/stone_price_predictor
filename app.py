@@ -268,8 +268,8 @@ class StonePricePredictor:
         self.scaler = StandardScaler()
         self.feature_columns = []
         # NOTE: segment is EXCLUDED to prevent data leakage (segment is derived from price)
-        # charge_unit is critical for price prediction
-        self.categorical_columns = ['family', 'stone_color_type', 'charge_unit']
+        # processing_code is the main surface processing type (e.g., DOT=Flamed, HON=Honed)
+        self.categorical_columns = ['family', 'stone_color_type', 'charge_unit', 'processing_code']
         self.numerical_columns = ['length_cm', 'width_cm', 'height_cm', 'volume_m3', 'area_m2']
         
     def clean_data(self, df: pd.DataFrame, target_col: str = 'sales_price') -> pd.DataFrame:
@@ -279,9 +279,15 @@ class StonePricePredictor:
         # Remove rows with missing or invalid target
         df_clean = df_clean[df_clean[target_col].notna() & (df_clean[target_col] > 0)]
         
-        # Remove rows with missing critical features
+        # Clean processing_code: replace empty/Unknown with 'OTHER'
+        if 'processing_code' in df_clean.columns:
+            df_clean['processing_code'] = df_clean['processing_code'].fillna('OTHER')
+            df_clean['processing_code'] = df_clean['processing_code'].replace('', 'OTHER')
+            # Keep 'Unknown' as a valid category but standardize empty strings
+        
+        # Remove rows with missing critical features (excluding processing_code which is handled above)
         for col in self.categorical_columns:
-            if col in df_clean.columns:
+            if col in df_clean.columns and col != 'processing_code':
                 df_clean = df_clean[df_clean[col].notna()]
         
         for col in self.numerical_columns:
@@ -505,7 +511,7 @@ def main():
             help="Lọc theo Account_Code_C__c"
         )
         
-        if st.button("🔄 Tải / Làm mới dữ liệu", use_container_width=True):
+        if st.button("🔄 Tải / Làm mới dữ liệu từ Salesforce", use_container_width=True):
             with st.spinner("Đang tải dữ liệu từ Salesforce..."):
                 if SALESFORCE_AVAILABLE:
                     try:
@@ -586,6 +592,17 @@ def main():
             stone_class = st.selectbox("Loại đá (Stone Class)", STONE_CLASSES)
             stone_color = st.selectbox("Màu đá (Stone Color)", STONE_COLOR_TYPES)
             
+            # Main Processing dropdown
+            processing_code = st.selectbox(
+                "Main Processing",
+                options=[code for code, name in PROCESSING_CODES],
+                format_func=lambda x: f"{x} - {dict(PROCESSING_CODES).get(x, 'Other')}" if x else "OTHER - Unknown/Other",
+                index=0  # Default to first option (empty = OTHER)
+            )
+            # Convert empty to 'OTHER' to match model training
+            if not processing_code:
+                processing_code = 'OTHER'
+            
             col_dim1, col_dim2, col_dim3 = st.columns(3)
             with col_dim1:
                 length = st.number_input("Dài (cm)", min_value=1, max_value=300, value=30)
@@ -613,6 +630,7 @@ def main():
                     'family': family,
                     'stone_class': stone_class,
                     'stone_color_type': stone_color,
+                    'processing_code': processing_code,  # Main processing code
                     'length_cm': length,
                     'width_cm': width,
                     'height_cm': height,
@@ -1078,17 +1096,17 @@ def main():
                 - early stopping: 10 iterations
                 
                 **Features:**
-                - Categorical: family, stone_color_type, charge_unit
+                - Categorical: family, stone_color_type, charge_unit, **processing_code** (Main Processing)
                 - Numerical: length_cm, width_cm, height_cm, volume_m3, area_m2
                 
                 > ⚠️ **Data Leakage Prevention:** `segment` đã được loại bỏ khỏi features vì nó được 
-                > tính từ giá (price_m3). Việc dùng segment làm feature sẽ gây ra data leakage và 
-                > làm R² score cao giả tạo.
+                > tính từ giá (price_m3). Việc dùng segment làm feature sẽ gây ra data leakage.
                 
                 **Data Cleaning:**
                 - Loại bỏ giá = 0, âm, hoặc missing
                 - Loại bỏ outliers (ngoài 1st-99th percentile)
                 - Loại bỏ rows có missing values trong features
+                - `processing_code` rỗng/Unknown được chuyển thành 'OTHER'
                 """)
         else:
             st.info("👈 Huấn luyện model để xem hiệu suất (nút 🤖 ở sidebar)")
