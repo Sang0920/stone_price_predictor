@@ -101,6 +101,28 @@ STONE_COLOR_TYPES = [
 
 CHARGE_UNITS = ['USD/PC', 'USD/M2', 'USD/TON', 'USD/ML', 'USD/M3']
 
+# Processing codes with English names (for search dropdown)
+PROCESSING_CODES = [
+    ('', 'All'),
+    ('CUA', 'Sawn'),
+    ('DOT', 'Flamed'),
+    ('DOC', 'Flamed Brush'),
+    ('DOX', 'Flamed Water'),
+    ('HON', 'Honed'),
+    ('CTA', 'Split Handmade'),
+    ('CLO', 'Sawn then Cleaved'),
+    ('TDE', 'Chiseled'),
+    ('GCR', 'Vibrated Honed Tumbled'),
+    ('GCT', 'Old Imitation'),
+    ('MGI', 'Scraped'),
+    ('PCA', 'Sandblasted'),
+    ('QME', 'Tumbled'),
+    ('TLO', 'Cleaved'),
+    ('BON', 'Polished'),
+    ('BAM', 'Bush Hammered'),
+    ('CHA', 'Brush'),
+]
+
 
 # ============ Data Generation (Simulated Salesforce Data) ============
 @st.cache_data(ttl=3600)
@@ -644,75 +666,112 @@ def main():
                 st.markdown(f"- Thể tích: {volume_m3:.6f} m³")
                 st.markdown(f"- Diện tích: {area_m2:.4f} m²")
                 
-                # ============ EXACT MATCH PRODUCTS ============
-                st.divider()
-                st.markdown("#### 📋 Sản phẩm trong hệ thống khớp tiêu chí")
+        # ============ EXACT MATCH PRODUCTS (Full Width) ============
+        # This section is outside the columns for full width display
+        if predict_btn and st.session_state.model is not None:
+            st.divider()
+            st.markdown("#### 📋 Sản phẩm trong hệ thống khớp tiêu chí")
+            
+            # Find exact matches from database
+            df = st.session_state.data.copy()
+            df_clean = df[df['sales_price'].notna() & (df['sales_price'] > 0)].copy()
+            
+            # Build match criteria
+            match_mask = (
+                (df_clean['family'] == family) &
+                (df_clean['stone_color_type'] == stone_color) &
+                (df_clean['charge_unit'] == charge_unit) &
+                (df_clean['length_cm'] == length) &
+                (df_clean['width_cm'] == width) &
+                (df_clean['height_cm'] == height)
+            )
+            
+            exact_matches = df_clean[match_mask]
+            
+            if len(exact_matches) > 0:
+                st.success(f"✅ Tìm thấy **{len(exact_matches)}** sản phẩm khớp chính xác trong hệ thống!")
                 
-                # Find exact matches from database
-                df = st.session_state.data.copy()
-                df_clean = df[df['sales_price'].notna() & (df['sales_price'] > 0)].copy()
+                # Statistics
+                match_prices = exact_matches['sales_price']
+                stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+                with stat_col1:
+                    st.metric("Thấp nhất", f"${match_prices.min():,.2f}")
+                with stat_col2:
+                    st.metric("Cao nhất", f"${match_prices.max():,.2f}")
+                with stat_col3:
+                    st.metric("Trung bình", f"${match_prices.mean():,.2f}")
+                with stat_col4:
+                    st.metric("Trung vị", f"${match_prices.median():,.2f}")
                 
-                # Build match criteria
-                match_mask = (
+                # Compare with prediction
+                diff = predicted_sales_price - match_prices.mean()
+                if abs(diff) < 1:
+                    st.info(f"📊 Giá dự đoán gần với giá trung bình thực tế (chênh lệch: ${diff:+.2f})")
+                elif diff > 0:
+                    st.warning(f"📊 Giá dự đoán cao hơn giá trung bình thực tế ${diff:+.2f}")
+                else:
+                    st.warning(f"📊 Giá dự đoán thấp hơn giá trung bình thực tế ${diff:+.2f}")
+                
+                # Show table of ALL matches with ALL fields
+                # Define display columns in logical order
+                display_cols = [
+                    'contract_product_name', 'contract_name', 'account_code',
+                    'sku', 'processing_code', 'processing_name',
+                    'stone_color_type', 'family', 'segment',
+                    'length_cm', 'width_cm', 'height_cm',
+                    'charge_unit', 'sales_price', 'price_m3',
+                    'created_date', 'fy_year',
+                    'quantity', 'm2', 'm3', 'total_price_usd'
+                ]
+                available_cols = [col for col in display_cols if col in exact_matches.columns]
+                
+                # Column config for English headers
+                col_config = {
+                    'sku': st.column_config.TextColumn('SKU'),
+                    'processing_code': st.column_config.TextColumn('Main Processing Code'),
+                    'processing_name': st.column_config.TextColumn('Main Processing'),
+                }
+                
+                with st.expander(f"📋 Xem danh sách {len(exact_matches)} sản phẩm khớp", expanded=True):
+                    st.dataframe(exact_matches[available_cols], use_container_width=True, height=300, column_config=col_config)
+            else:
+                # Try partial match
+                partial_mask = (
                     (df_clean['family'] == family) &
                     (df_clean['stone_color_type'] == stone_color) &
-                    (df_clean['charge_unit'] == charge_unit) &
-                    (df_clean['length_cm'] == length) &
-                    (df_clean['width_cm'] == width) &
-                    (df_clean['height_cm'] == height)
+                    (df_clean['charge_unit'] == charge_unit)
                 )
+                partial_matches = df_clean[partial_mask]
                 
-                exact_matches = df_clean[match_mask]
-                
-                if len(exact_matches) > 0:
-                    st.success(f"✅ Tìm thấy **{len(exact_matches)}** sản phẩm khớp chính xác trong hệ thống!")
+                if len(partial_matches) > 0:
+                    st.info(f"⚠️ Không tìm thấy sản phẩm khớp chính xác kích thước. Có **{len(partial_matches)}** sản phẩm cùng loại/màu/đơn vị.")
+                    match_prices = partial_matches['sales_price']
+                    st.caption(f"Giá tham khảo: ${match_prices.min():,.2f} - ${match_prices.max():,.2f} (TB: ${match_prices.mean():,.2f})")
                     
-                    # Statistics
-                    match_prices = exact_matches['sales_price']
-                    stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
-                    with stat_col1:
-                        st.metric("Thấp nhất", f"${match_prices.min():,.2f}")
-                    with stat_col2:
-                        st.metric("Cao nhất", f"${match_prices.max():,.2f}")
-                    with stat_col3:
-                        st.metric("Trung bình", f"${match_prices.mean():,.2f}")
-                    with stat_col4:
-                        st.metric("Trung vị", f"${match_prices.median():,.2f}")
-                    
-                    # Compare with prediction
-                    diff = predicted_sales_price - match_prices.mean()
-                    if abs(diff) < 1:
-                        st.info(f"📊 Giá dự đoán gần với giá trung bình thực tế (chênh lệch: ${diff:+.2f})")
-                    elif diff > 0:
-                        st.warning(f"📊 Giá dự đoán cao hơn giá trung bình thực tế ${diff:+.2f}")
-                    else:
-                        st.warning(f"📊 Giá dự đoán thấp hơn giá trung bình thực tế ${diff:+.2f}")
-                    
-                    # Show table of matches
-                    display_cols = ['contract_product_name', 'sales_price', 'segment', 'created_date']
-                    available_cols = [col for col in display_cols if col in exact_matches.columns]
-                    with st.expander(f"Xem danh sách {len(exact_matches)} sản phẩm khớp"):
-                        st.dataframe(exact_matches[available_cols], use_container_width=True, height=200)
+                    # Show partial matches with all fields
+                    display_cols = [
+                        'contract_product_name', 'contract_name', 'account_code',
+                        'sku', 'processing_code', 'processing_name',
+                        'stone_color_type', 'family', 'segment',
+                        'length_cm', 'width_cm', 'height_cm',
+                        'charge_unit', 'sales_price', 'price_m3',
+                        'created_date', 'fy_year'
+                    ]
+                    available_cols = [col for col in display_cols if col in partial_matches.columns]
+                    col_config = {
+                        'sku': st.column_config.TextColumn('SKU'),
+                        'processing_code': st.column_config.TextColumn('Main Processing Code'),
+                        'processing_name': st.column_config.TextColumn('Main Processing'),
+                    }
+                    with st.expander(f"📋 Xem danh sách {len(partial_matches)} sản phẩm liên quan"):
+                        st.dataframe(partial_matches.head(50)[available_cols], use_container_width=True, height=300, column_config=col_config)
                 else:
-                    # Try partial match
-                    partial_mask = (
-                        (df_clean['family'] == family) &
-                        (df_clean['stone_color_type'] == stone_color) &
-                        (df_clean['charge_unit'] == charge_unit)
-                    )
-                    partial_matches = df_clean[partial_mask]
-                    
-                    if len(partial_matches) > 0:
-                        st.info(f"⚠️ Không tìm thấy sản phẩm khớp chính xác kích thước. Có **{len(partial_matches)}** sản phẩm cùng loại/màu/đơn vị.")
-                        match_prices = partial_matches['sales_price']
-                        st.caption(f"Giá tham khảo: ${match_prices.min():,.2f} - ${match_prices.max():,.2f} (TB: ${match_prices.mean():,.2f})")
-                    else:
-                        st.info("⚠️ Không tìm thấy sản phẩm tương tự trong hệ thống.")
-                
-            elif predict_btn and st.session_state.model is None:
-                st.warning("⚠️ Vui lòng huấn luyện model trước khi dự đoán (nút 🤖 ở sidebar)")
-            else:
-                st.info("👈 Nhập thông tin sản phẩm và nhấn 'Dự đoán giá'")
+                    st.info("⚠️ Không tìm thấy sản phẩm tương tự trong hệ thống.")
+        
+        elif predict_btn and st.session_state.model is None:
+            st.warning("⚠️ Vui lòng huấn luyện model trước khi dự đoán (nút 🤖 ở sidebar)")
+        elif not predict_btn:
+            pass  # User hasn't clicked predict yet
     
     # Tab 2: Data Analysis
     with tab2:
@@ -820,6 +879,14 @@ def main():
             search_family = st.selectbox("Loại sản phẩm", [''] + PRODUCT_FAMILIES, key='search_family')
             search_stone = st.selectbox("Màu đá", [''] + STONE_COLOR_TYPES, key='search_stone')
             
+            # Processing code dropdown
+            search_processing = st.selectbox(
+                "Main Processing",
+                options=[code for code, name in PROCESSING_CODES],
+                format_func=lambda x: f"{x} - {dict(PROCESSING_CODES).get(x, 'All')}" if x else "All",
+                key='search_processing'
+            )
+            
             search_col1, search_col2, search_col3 = st.columns(3)
             with search_col1:
                 search_length = st.number_input("Dài (cm)", min_value=0, value=30, key='search_l')
@@ -854,6 +921,8 @@ def main():
                     exact_mask &= df_clean['family'] == search_family
                 if search_stone:
                     exact_mask &= df_clean['stone_color_type'] == search_stone
+                if search_processing and 'processing_code' in df_clean.columns:
+                    exact_mask &= df_clean['processing_code'] == search_processing
                 if search_length > 0:
                     exact_mask &= df_clean['length_cm'] == search_length
                 if search_width > 0:
@@ -863,14 +932,23 @@ def main():
                 
                 exact_matches = df_clean[exact_mask]
                 
-                display_cols = ['contract_product_name', 'family', 'stone_color_type', 'length_cm', 'width_cm', 
-                                'height_cm', 'charge_unit', 'sales_price', 'price_m3', 'segment']
+                # Include processing columns in display - SKU and processing codes together
+                display_cols = ['contract_product_name', 'family', 'stone_color_type', 
+                                'sku', 'processing_code', 'processing_name',
+                                'length_cm', 'width_cm', 'height_cm', 'charge_unit', 'sales_price', 'price_m3', 'segment']
                 available_cols = [col for col in display_cols if col in df_clean.columns]
+                
+                # Column config for English headers
+                col_config = {
+                    'sku': st.column_config.TextColumn('SKU'),
+                    'processing_code': st.column_config.TextColumn('Main Processing Code'),
+                    'processing_name': st.column_config.TextColumn('Main Processing'),
+                }
                 
                 # Display exact matches
                 if len(exact_matches) > 0:
                     st.markdown(f"#### ✅ Tìm thấy {len(exact_matches)} sản phẩm khớp chính xác")
-                    st.dataframe(exact_matches[available_cols], use_container_width=True, height=300)
+                    st.dataframe(exact_matches[available_cols], use_container_width=True, height=300, column_config=col_config)
                     
                     # Statistics for exact matches
                     valid_prices = exact_matches['sales_price']
@@ -900,6 +978,8 @@ def main():
                         related_mask |= df_clean['family'] == search_family
                     if search_stone:
                         related_mask |= df_clean['stone_color_type'] == search_stone
+                    if search_processing and 'processing_code' in df_clean.columns:
+                        related_mask |= df_clean['processing_code'] == search_processing
                     
                     # Exclude exact matches
                     related_mask &= ~exact_mask
@@ -918,7 +998,7 @@ def main():
                         related_products = related_products.head(related_count)
                     
                     if len(related_products) > 0:
-                        st.dataframe(related_products[available_cols], use_container_width=True, height=300)
+                        st.dataframe(related_products[available_cols], use_container_width=True, height=300, column_config=col_config)
                         
                         # Statistics for related products
                         valid_prices = related_products['sales_price']
@@ -1046,7 +1126,9 @@ def main():
             'contract_name',           # Contract__r.Name
             'account_code',            # Account_Code_C__c
             'stone_color_type',        # Product__r.STONE_Color_Type__c
-            'product_code',            # Product__r.ProductCode
+            'sku',                     # Product__r.StockKeepingUnit (SKU)
+            'processing_code',         # Main processing code (from SKU)
+            'processing_name',         # Main processing name (English)
             'family',                  # Product__r.Family
             'segment',                 # Segment__c
             'created_date',            # Created_Date__c
@@ -1075,12 +1157,19 @@ def main():
         remaining_columns = [col for col in filtered_df.columns if col not in available_columns]
         display_columns = available_columns + remaining_columns
         
+        # Column configuration for English headers on specific columns
+        column_config = {
+            'sku': st.column_config.TextColumn('SKU', help='Product Stock Keeping Unit'),
+            'processing_code': st.column_config.TextColumn('Main Processing Code', help='Ký hiệu gia công chính'),
+            'processing_name': st.column_config.TextColumn('Main Processing', help='Nhóm mã gia công chính'),
+        }
         
-        # Display data with all columns (using original field names as headers)
+        # Display data with all columns
         st.dataframe(
             filtered_df[display_columns],
             use_container_width=True,
-            height=500
+            height=500,
+            column_config=column_config
         )
         
         # Download button

@@ -3,7 +3,7 @@ SELECT
     Contract__r.Name,
     Account_Code_C__c,
     Product__r.STONE_Color_Type__c,
-    Product__r.ProductCode,
+    Product__r.StockKeepingUnit,
     Product__r.Family,
     Segment__c,
     Created_Date__c,

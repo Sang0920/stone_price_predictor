@@ -11,6 +11,65 @@ from datetime import datetime
 import json
 
 
+# Main Processing Code mapping (SKU positions 5-7)
+# Ký hiệu -> English name
+PROCESSING_CODE_MAP = {
+    'CUA': 'Sawn',
+    'DOT': 'Flamed',
+    'DOC': 'Flamed Brush',
+    'DOX': 'Flamed Water',
+    'HON': 'Honed',
+    'CTA': 'Split Handmade',
+    'CLO': 'Sawn then Cleaved',
+    'TDE': 'Chiseled',
+    'GCR': 'Vibrated Honed Tumbled',
+    'GCT': 'Old Imitation',
+    'MGI': 'Scraped',
+    'PCA': 'Sandblasted',
+    'MCA': 'Sandblasted',
+    'QME': 'Tumbled',
+    'TLO': 'Cleaved',
+    'BON': 'Polished',
+    'BAM': 'Bush Hammered',
+    'CHA': 'Brush',
+}
+
+
+def extract_processing_code(product_code: str) -> tuple:
+    """
+    Extract main processing code from product SKU.
+    
+    Tries multiple extraction strategies:
+    1. Positions 5-7 (standard format like BD01DOT2-06004060)
+    2. After first dash (like X-DOT-123)
+    3. Search anywhere in the string
+    
+    Args:
+        product_code: The product code/SKU string
+        
+    Returns:
+        Tuple of (code, english_name)
+    """
+    if not product_code or not isinstance(product_code, str):
+        return ('', 'Unknown')
+    
+    code_upper = product_code.upper()
+    
+    # Strategy 1: Standard format - positions 5-7 (index 4-6)
+    if len(code_upper) >= 7:
+        code = code_upper[4:7]
+        if code in PROCESSING_CODE_MAP:
+            return (code, PROCESSING_CODE_MAP[code])
+    
+    # Strategy 2: Search for any known processing code in the string
+    for proc_code in PROCESSING_CODE_MAP.keys():
+        if proc_code in code_upper:
+            return (proc_code, PROCESSING_CODE_MAP[proc_code])
+    
+    # No processing code found
+    return ('', 'Unknown')
+
+
 class SalesforceDataLoader:
     """Load pricing data from Salesforce for price prediction."""
     
@@ -186,7 +245,7 @@ class SalesforceDataLoader:
             Contract__r.Name,
             Account_Code_C__c,
             Product__r.STONE_Color_Type__c,
-            Product__r.ProductCode,
+            Product__r.StockKeepingUnit,
             Product__r.Family,
             Segment__c,
             Created_Date__c,
@@ -255,7 +314,7 @@ class SalesforceDataLoader:
                 "contract_name": contract.get("Name"),
                 "account_code": r.get("Account_Code_C__c"),
                 "stone_color_type": product.get("STONE_Color_Type__c"),
-                "product_code": product.get("ProductCode"),
+                "sku": product.get("StockKeepingUnit"),  # SKU like BD01DOT2-06004060
                 "family": product.get("Family"),
                 "segment": segment,
                 "created_date": created_date,
@@ -276,7 +335,10 @@ class SalesforceDataLoader:
                 "total_price_usd": total_price,
                 "price_m3": price_m3,
                 "volume_m3": volume_m3,
-                "area_m2": area_m2
+                "area_m2": area_m2,
+                # Main processing code extracted from SKU (positions 5-7)
+                "processing_code": extract_processing_code(product.get("StockKeepingUnit"))[0],
+                "processing_name": extract_processing_code(product.get("StockKeepingUnit"))[1]
             })
         
         return pd.DataFrame(data)
