@@ -1,0 +1,25 @@
+SELECT 
+    Name,
+    Contract__r.Name,
+    Account_Code_C__c,
+    Product__r.STONE_Color_Type__c,
+    Product__r.ProductCode,
+    Product__r.Family,
+    Segment__c,
+    Created_Date__c,
+    Product_Discription__c,
+    Product__r.Product_description_in_Vietnamese__c,
+    Length__c,
+    Width__c,
+    Height__c,
+    Quantity__c,
+    Crates__c,
+    m2__c,
+    m3__c,
+    ml__c,
+    Tons__c,
+    Sales_Price__c,
+    Charge_Unit__c,
+    Total_Price_USD__c
+FROM Contract_Product__c
+ORDER BY Created_Date__c DESC

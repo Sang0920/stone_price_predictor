@@ -25,6 +25,16 @@ from typing import Optional, Dict, Any, List, Tuple
 import requests
 from io import StringIO
 
+# Import Salesforce data loader
+from dotenv import load_dotenv
+load_dotenv()  # Load .env file for Salesforce credentials
+
+try:
+    from salesforce_loader import SalesforceDataLoader
+    SALESFORCE_AVAILABLE = True
+except ImportError:
+    SALESFORCE_AVAILABLE = False
+
 # ============ Configuration ============
 st.set_page_config(
     page_title="Stone Price Predictor",
@@ -228,15 +238,40 @@ def generate_sample_data(n_samples: int = 500) -> pd.DataFrame:
 
 # ============ Machine Learning Model ============
 class StonePricePredictor:
-    """Machine Learning model for stone price prediction."""
+    """Machine Learning model for stone sales price prediction."""
     
     def __init__(self):
         self.model = None
         self.encoders = {}
         self.scaler = StandardScaler()
         self.feature_columns = []
-        self.categorical_columns = ['family', 'stone_class', 'stone_color_type', 'charge_unit']
+        # NOTE: segment is EXCLUDED to prevent data leakage (segment is derived from price)
+        # charge_unit is critical for price prediction
+        self.categorical_columns = ['family', 'stone_color_type', 'charge_unit']
         self.numerical_columns = ['length_cm', 'width_cm', 'height_cm', 'volume_m3', 'area_m2']
+        
+    def clean_data(self, df: pd.DataFrame, target_col: str = 'sales_price') -> pd.DataFrame:
+        """Clean data for training: remove invalid, missing, and outlier data."""
+        df_clean = df.copy()
+        
+        # Remove rows with missing or invalid target
+        df_clean = df_clean[df_clean[target_col].notna() & (df_clean[target_col] > 0)]
+        
+        # Remove rows with missing critical features
+        for col in self.categorical_columns:
+            if col in df_clean.columns:
+                df_clean = df_clean[df_clean[col].notna()]
+        
+        for col in self.numerical_columns:
+            if col in df_clean.columns:
+                df_clean = df_clean[df_clean[col].notna() & (df_clean[col] >= 0)]
+        
+        # Remove extreme outliers using IQR method for target variable
+        Q1 = df_clean[target_col].quantile(0.01)
+        Q3 = df_clean[target_col].quantile(0.99)
+        df_clean = df_clean[(df_clean[target_col] >= Q1) & (df_clean[target_col] <= Q3)]
+        
+        return df_clean
         
     def prepare_features(self, df: pd.DataFrame, fit: bool = False) -> np.ndarray:
         """Prepare features for ML model."""
@@ -256,8 +291,9 @@ class StonePricePredictor:
                     )
         
         # Select feature columns
-        encoded_cols = [f'{col}_encoded' for col in self.categorical_columns]
-        self.feature_columns = self.numerical_columns + encoded_cols
+        encoded_cols = [f'{col}_encoded' for col in self.categorical_columns if col in df.columns]
+        available_numerical = [col for col in self.numerical_columns if col in df.columns]
+        self.feature_columns = available_numerical + encoded_cols
         
         X = features[self.feature_columns].values
         
@@ -268,43 +304,65 @@ class StonePricePredictor:
             
         return X
     
-    def train(self, df: pd.DataFrame, target_col: str = 'price_m3') -> Dict[str, float]:
-        """Train the price prediction model."""
+    def train(self, df: pd.DataFrame, target_col: str = 'sales_price') -> Dict[str, float]:
+        """Train the sales price prediction model with proper data cleaning."""
+        # Clean data: remove invalid, missing, and outlier data
+        df_clean = self.clean_data(df, target_col)
+        
+        if len(df_clean) < 50:
+            raise ValueError(f"Không đủ dữ liệu hợp lệ để huấn luyện model (chỉ có {len(df_clean)} mẫu, cần ít nhất 50)")
+        
         # Prepare features
-        X = self.prepare_features(df, fit=True)
-        y = df[target_col].values
+        X = self.prepare_features(df_clean, fit=True)
+        y = df_clean[target_col].values
         
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        # Split data with stratification based on charge_unit if possible
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42
+        )
         
-        # Train Gradient Boosting model
+        # Optimized Gradient Boosting model for price prediction
+        # - subsample < 1.0 helps prevent overfitting
+        # - n_iter_no_change enables early stopping
+        # - lower learning rate with more estimators for better generalization
         self.model = GradientBoostingRegressor(
-            n_estimators=100,
-            learning_rate=0.1,
-            max_depth=5,
-            min_samples_split=5,
-            min_samples_leaf=2,
+            n_estimators=200,
+            learning_rate=0.05,        # Lower learning rate for better generalization
+            max_depth=4,               # Shallower trees to prevent overfitting
+            min_samples_split=10,      # Require more samples to split
+            min_samples_leaf=5,        # Require more samples in leaves
+            subsample=0.8,             # Use 80% of data per tree (stochastic GB)
+            max_features='sqrt',       # Use sqrt of features for each split
+            n_iter_no_change=10,       # Early stopping if no improvement
+            validation_fraction=0.1,   # Use 10% for validation
             random_state=42
         )
         self.model.fit(X_train, y_train)
         
-        # Evaluate
+        # Evaluate on test set
         y_pred = self.model.predict(X_test)
         mae = mean_absolute_error(y_test, y_pred)
         r2 = r2_score(y_test, y_pred)
         
-        # Cross-validation
+        # Cross-validation for more robust metrics
         cv_scores = cross_val_score(self.model, X, y, cv=5, scoring='neg_mean_absolute_error')
+        cv_r2_scores = cross_val_score(self.model, X, y, cv=5, scoring='r2')
         
         return {
             'mae': mae,
             'r2': r2,
             'cv_mae_mean': -cv_scores.mean(),
-            'cv_mae_std': cv_scores.std()
+            'cv_mae_std': cv_scores.std(),
+            'cv_r2_mean': cv_r2_scores.mean(),
+            'cv_r2_std': cv_r2_scores.std(),
+            'train_samples': len(df_clean),
+            'removed_samples': len(df) - len(df_clean),
+            'target_col': target_col,
+            'n_estimators_used': self.model.n_estimators_
         }
     
     def predict(self, df: pd.DataFrame) -> np.ndarray:
-        """Predict prices for new data."""
+        """Predict sales prices for new data."""
         if self.model is None:
             raise ValueError("Model not trained. Please train the model first.")
         
@@ -371,8 +429,8 @@ def find_similar_products(df: pd.DataFrame, query: Dict, top_n: int = 5) -> pd.D
     # Filter by basic criteria
     mask = pd.Series([True] * len(df))
     
-    if query.get('stone_class'):
-        mask &= df['stone_class'] == query['stone_class']
+    if query.get('stone_color_type'):
+        mask &= df['stone_color_type'] == query['stone_color_type']
     
     if query.get('family'):
         mask &= df['family'] == query['family']
@@ -412,19 +470,34 @@ def main():
     
     # Sidebar
     with st.sidebar:
-        st.image("https://img.icons8.com/fluency/96/gemstone.png", width=80)
+        st.markdown("## 💎 Stone Price Predictor")
         st.title("⚙️ Cấu hình")
         
-        # Data source selection
-        data_source = st.selectbox(
-            "Nguồn dữ liệu",
-            ["Dữ liệu mẫu (Demo)", "Salesforce API (Coming Soon)"]
+        # Data source - Salesforce only
+        st.markdown("**Nguồn dữ liệu:** Salesforce Contract Products")
+        
+        # Optional account code filter for Salesforce
+        account_filter = st.text_input(
+            "Mã khách hàng (tùy chọn)",
+            placeholder="e.g., ACC-001",
+            help="Lọc theo Account_Code_C__c"
         )
         
         if st.button("🔄 Tải / Làm mới dữ liệu", use_container_width=True):
-            with st.spinner("Đang tải dữ liệu..."):
-                st.session_state.data = generate_sample_data(500)
-                st.success(f"✅ Đã tải {len(st.session_state.data)} sản phẩm!")
+            with st.spinner("Đang tải dữ liệu từ Salesforce..."):
+                if SALESFORCE_AVAILABLE:
+                    try:
+                        loader = SalesforceDataLoader()
+                        df = loader.get_contract_products(account_code=account_filter if account_filter else None)
+                        if len(df) > 0:
+                            st.session_state.data = df
+                            st.success(f"✅ Đã tải {len(df)} sản phẩm từ Salesforce!")
+                        else:
+                            st.warning("⚠️ Không tìm thấy dữ liệu từ Salesforce.")
+                    except Exception as e:
+                        st.error(f"❌ Lỗi kết nối Salesforce: {str(e)}")
+                else:
+                    st.error("❌ Salesforce chưa được cấu hình. Vui lòng kiểm tra file .env")
         
         if st.session_state.data is not None:
             if st.button("🤖 Huấn luyện Model ML", use_container_width=True):
@@ -510,7 +583,7 @@ def main():
         
         with col2:
             if predict_btn and st.session_state.model is not None:
-                # Prepare input data
+                # Prepare input data (segment is NOT included to prevent data leakage)
                 volume_m3 = (length * width * height) / 1000000
                 area_m2 = (length * width) / 10000
                 
@@ -526,43 +599,35 @@ def main():
                     'charge_unit': charge_unit
                 }])
                 
-                # Predict
-                predicted_price_m3 = st.session_state.model.predict(input_data)[0]
-                segment = classify_segment(predicted_price_m3)
+                # Predict sales_price directly
+                predicted_sales_price = st.session_state.model.predict(input_data)[0]
                 
-                # Calculate unit price
-                if charge_unit == 'USD/M2':
-                    unit_price = predicted_price_m3 * height / 100
+                # Classify segment based on predicted price (using price_m3 equivalent)
+                if charge_unit == 'USD/M3':
+                    price_for_segment = predicted_sales_price
                 elif charge_unit == 'USD/PC':
-                    unit_price = predicted_price_m3 * volume_m3
-                elif charge_unit == 'USD/TON':
-                    specific_gravity = 2.8 if stone_class == 'BASALT' else 2.65
-                    unit_price = predicted_price_m3 / (specific_gravity * 1.1)
-                elif charge_unit == 'USD/ML':
-                    unit_price = predicted_price_m3 * width * height / 10000
+                    price_for_segment = predicted_sales_price / volume_m3 if volume_m3 > 0 else predicted_sales_price
                 else:
-                    unit_price = predicted_price_m3
+                    price_for_segment = predicted_sales_price * 50  # Rough estimate for other units
+                
+                segment = classify_segment(price_for_segment)
                 
                 # Customer price adjustment
-                price_info = calculate_customer_price(unit_price, customer_type)
+                price_info = calculate_customer_price(predicted_sales_price, customer_type)
                 
                 # Display results
                 st.markdown("#### 📊 Kết quả dự đoán")
                 
-                # Segment indicator
+                # Segment indicator (derived from predicted price, not input)
                 segment_color = get_segment_color(segment)
                 st.markdown(f"""
                 <div style="background-color: {segment_color}; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;">
-                    <h3 style="color: white; margin: 0;">Phân khúc: {segment}</h3>
+                    <h3 style="color: white; margin: 0;">Phân khúc dự đoán: {segment}</h3>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Metrics
-                metric_col1, metric_col2 = st.columns(2)
-                with metric_col1:
-                    st.metric("💰 Giá m³ dự đoán", f"${predicted_price_m3:,.2f}")
-                with metric_col2:
-                    st.metric(f"📦 Giá/{charge_unit.split('/')[1]}", f"${unit_price:,.2f}")
+                # Main predicted price metric
+                st.metric(f"💰 Giá bán dự đoán ({charge_unit})", f"${predicted_sales_price:,.2f}")
                 
                 st.divider()
                 
@@ -571,30 +636,78 @@ def main():
                 st.markdown(f"- Khoảng giá: **${price_info['min_price']:,.2f}** - **${price_info['max_price']:,.2f}**")
                 st.markdown(f"- Điều chỉnh: {price_info['adjustment_label']}")
                 
-                # Price gauge
-                fig = go.Figure(go.Indicator(
-                    mode="gauge+number",
-                    value=predicted_price_m3,
-                    domain={'x': [0, 1], 'y': [0, 1]},
-                    title={'text': "USD/m³"},
-                    gauge={
-                        'axis': {'range': [0, 2000]},
-                        'bar': {'color': segment_color},
-                        'steps': [
-                            {'range': [0, 400], 'color': '#6bcb77'},
-                            {'range': [400, 800], 'color': '#ffd93d'},
-                            {'range': [800, 1500], 'color': '#ff6b6b'},
-                            {'range': [1500, 2000], 'color': '#9e7cc1'}
-                        ],
-                        'threshold': {
-                            'line': {'color': "red", 'width': 4},
-                            'thickness': 0.75,
-                            'value': predicted_price_m3
-                        }
-                    }
-                ))
-                fig.update_layout(height=250)
-                st.plotly_chart(fig, use_container_width=True)
+                st.divider()
+                
+                # Product info summary
+                st.markdown("**📦 Thông tin sản phẩm:**")
+                st.markdown(f"- Kích thước: {length} x {width} x {height} cm")
+                st.markdown(f"- Thể tích: {volume_m3:.6f} m³")
+                st.markdown(f"- Diện tích: {area_m2:.4f} m²")
+                
+                # ============ EXACT MATCH PRODUCTS ============
+                st.divider()
+                st.markdown("#### 📋 Sản phẩm trong hệ thống khớp tiêu chí")
+                
+                # Find exact matches from database
+                df = st.session_state.data.copy()
+                df_clean = df[df['sales_price'].notna() & (df['sales_price'] > 0)].copy()
+                
+                # Build match criteria
+                match_mask = (
+                    (df_clean['family'] == family) &
+                    (df_clean['stone_color_type'] == stone_color) &
+                    (df_clean['charge_unit'] == charge_unit) &
+                    (df_clean['length_cm'] == length) &
+                    (df_clean['width_cm'] == width) &
+                    (df_clean['height_cm'] == height)
+                )
+                
+                exact_matches = df_clean[match_mask]
+                
+                if len(exact_matches) > 0:
+                    st.success(f"✅ Tìm thấy **{len(exact_matches)}** sản phẩm khớp chính xác trong hệ thống!")
+                    
+                    # Statistics
+                    match_prices = exact_matches['sales_price']
+                    stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+                    with stat_col1:
+                        st.metric("Thấp nhất", f"${match_prices.min():,.2f}")
+                    with stat_col2:
+                        st.metric("Cao nhất", f"${match_prices.max():,.2f}")
+                    with stat_col3:
+                        st.metric("Trung bình", f"${match_prices.mean():,.2f}")
+                    with stat_col4:
+                        st.metric("Trung vị", f"${match_prices.median():,.2f}")
+                    
+                    # Compare with prediction
+                    diff = predicted_sales_price - match_prices.mean()
+                    if abs(diff) < 1:
+                        st.info(f"📊 Giá dự đoán gần với giá trung bình thực tế (chênh lệch: ${diff:+.2f})")
+                    elif diff > 0:
+                        st.warning(f"📊 Giá dự đoán cao hơn giá trung bình thực tế ${diff:+.2f}")
+                    else:
+                        st.warning(f"📊 Giá dự đoán thấp hơn giá trung bình thực tế ${diff:+.2f}")
+                    
+                    # Show table of matches
+                    display_cols = ['contract_product_name', 'sales_price', 'segment', 'created_date']
+                    available_cols = [col for col in display_cols if col in exact_matches.columns]
+                    with st.expander(f"Xem danh sách {len(exact_matches)} sản phẩm khớp"):
+                        st.dataframe(exact_matches[available_cols], use_container_width=True, height=200)
+                else:
+                    # Try partial match
+                    partial_mask = (
+                        (df_clean['family'] == family) &
+                        (df_clean['stone_color_type'] == stone_color) &
+                        (df_clean['charge_unit'] == charge_unit)
+                    )
+                    partial_matches = df_clean[partial_mask]
+                    
+                    if len(partial_matches) > 0:
+                        st.info(f"⚠️ Không tìm thấy sản phẩm khớp chính xác kích thước. Có **{len(partial_matches)}** sản phẩm cùng loại/màu/đơn vị.")
+                        match_prices = partial_matches['sales_price']
+                        st.caption(f"Giá tham khảo: ${match_prices.min():,.2f} - ${match_prices.max():,.2f} (TB: ${match_prices.mean():,.2f})")
+                    else:
+                        st.info("⚠️ Không tìm thấy sản phẩm tương tự trong hệ thống.")
                 
             elif predict_btn and st.session_state.model is None:
                 st.warning("⚠️ Vui lòng huấn luyện model trước khi dự đoán (nút 🤖 ở sidebar)")
@@ -605,18 +718,29 @@ def main():
     with tab2:
         st.subheader("📊 Phân tích dữ liệu giá")
         
-        df = st.session_state.data
+        df = st.session_state.data.copy()
         
-        # Summary metrics
+        # Clean data: remove products with price 0, missing, or negative
+        df_clean = df[df['sales_price'].notna() & (df['sales_price'] > 0)]
+        
+        # Show data quality info
+        total_products = len(df)
+        valid_products = len(df_clean)
+        excluded_products = total_products - valid_products
+        
+        if excluded_products > 0:
+            st.info(f"📊 Đã loại bỏ {excluded_products:,} sản phẩm có giá = 0, âm hoặc thiếu. Phân tích với {valid_products:,} / {total_products:,} sản phẩm.")
+        
+        # Summary metrics using sales_price (clean data)
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("📦 Tổng sản phẩm", f"{len(df):,}")
+            st.metric("📦 Sản phẩm hợp lệ", f"{valid_products:,}")
         with col2:
-            st.metric("💰 Giá TB (m³)", f"${df['price_m3'].mean():,.0f}")
+            st.metric("💰 Giá TB (Sales Price)", f"${df_clean['sales_price'].mean():,.2f}")
         with col3:
-            st.metric("📈 Giá cao nhất", f"${df['price_m3'].max():,.0f}")
+            st.metric("📈 Giá cao nhất", f"${df_clean['sales_price'].max():,.2f}")
         with col4:
-            st.metric("📉 Giá thấp nhất", f"${df['price_m3'].min():,.0f}")
+            st.metric("📉 Giá thấp nhất", f"${df_clean['sales_price'].min():,.2f}")
         
         st.divider()
         
@@ -624,8 +748,8 @@ def main():
         chart_col1, chart_col2 = st.columns(2)
         
         with chart_col1:
-            # Price distribution by segment
-            segment_counts = df['segment'].value_counts()
+            # Price distribution by segment (using clean data)
+            segment_counts = df_clean['segment'].value_counts()
             fig_segment = px.pie(
                 values=segment_counts.values,
                 names=segment_counts.index,
@@ -641,39 +765,41 @@ def main():
             st.plotly_chart(fig_segment, use_container_width=True)
         
         with chart_col2:
-            # Average price by family
-            avg_by_family = df.groupby('family')['price_m3'].mean().sort_values(ascending=True)
+            # Average sales_price by family (using clean data)
+            avg_by_family = df_clean.groupby('family')['sales_price'].mean().sort_values(ascending=True)
             fig_family = px.bar(
                 x=avg_by_family.values,
                 y=avg_by_family.index,
                 orientation='h',
-                title="Giá trung bình theo loại sản phẩm",
-                labels={'x': 'USD/m³', 'y': 'Loại sản phẩm'}
+                title="Giá bán trung bình theo loại sản phẩm",
+                labels={'x': 'Sales Price (USD)', 'y': 'Loại sản phẩm'}
             )
             fig_family.update_traces(marker_color='#667eea')
             st.plotly_chart(fig_family, use_container_width=True)
         
-        # Price by stone type
-        st.markdown("#### 💎 Giá theo loại đá")
+        # Price by stone type (using clean data)
+        st.markdown("#### 💎 Giá bán theo loại đá")
         fig_stone = px.box(
-            df,
-            x='stone_class',
-            y='price_m3',
-            color='stone_class',
-            title="Phân bố giá theo loại đá"
+            df_clean,
+            x='stone_color_type',
+            y='sales_price',
+            color='stone_color_type',
+            title="Phân bố giá bán theo màu đá",
+            labels={'sales_price': 'Sales Price (USD)', 'stone_color_type': 'Stone Color Type'}
         )
         st.plotly_chart(fig_stone, use_container_width=True)
         
-        # Price vs dimensions
-        st.markdown("#### 📐 Giá theo kích thước")
+        # Price vs dimensions (using clean data)
+        st.markdown("#### 📐 Giá bán theo kích thước")
         fig_scatter = px.scatter(
-            df,
+            df_clean,
             x='volume_m3',
-            y='price_m3',
+            y='sales_price',
             color='segment',
             size='height_cm',
-            hover_data=['product_name', 'family'],
-            title="Giá m³ vs Thể tích",
+            hover_data=['contract_product_name', 'family'],
+            title="Sales Price vs Thể tích",
+            labels={'sales_price': 'Sales Price (USD)', 'volume_m3': 'Volume (m³)'},
             color_discrete_map={
                 'Super premium': '#9e7cc1',
                 'Premium': '#ff6b6b',
@@ -692,7 +818,7 @@ def main():
         with col1:
             st.markdown("#### Tiêu chí tìm kiếm")
             search_family = st.selectbox("Loại sản phẩm", [''] + PRODUCT_FAMILIES, key='search_family')
-            search_stone = st.selectbox("Loại đá", [''] + STONE_CLASSES, key='search_stone')
+            search_stone = st.selectbox("Màu đá", [''] + STONE_COLOR_TYPES, key='search_stone')
             
             search_col1, search_col2, search_col3 = st.columns(3)
             with search_col1:
@@ -702,51 +828,117 @@ def main():
             with search_col3:
                 search_height = st.number_input("Dày (cm)", min_value=0.0, value=3.0, key='search_h')
             
-            top_n = st.slider("Số kết quả", 3, 20, 5)
+            st.divider()
             
-            search_btn = st.button("🔍 Tìm kiếm", type="primary")
+            # Show related checkbox and slider
+            show_related = st.checkbox("📋 Hiển thị sản phẩm liên quan", value=False, 
+                                       help="Hiển thị các sản phẩm có đặc điểm tương tự nếu không tìm thấy kết quả chính xác")
+            
+            if show_related:
+                related_count = st.slider("Số sản phẩm liên quan", 5, 50, 20)
+            
+            search_btn = st.button("🔍 Tìm kiếm", type="primary", use_container_width=True)
         
         with col2:
             if search_btn:
-                query = {
-                    'family': search_family if search_family else None,
-                    'stone_class': search_stone if search_stone else None,
-                    'length_cm': search_length,
-                    'width_cm': search_width,
-                    'height_cm': search_height
-                }
+                df = st.session_state.data.copy()
                 
-                similar = find_similar_products(st.session_state.data, query, top_n)
+                # Clean data for searching
+                df_clean = df[df['sales_price'].notna() & (df['sales_price'] > 0)].copy()
+                df_clean = df_clean.reset_index(drop=True)  # Reset index to avoid alignment issues
                 
-                if len(similar) > 0:
-                    st.markdown(f"#### Tìm thấy {len(similar)} sản phẩm tương tự")
+                # Step 1: Find EXACT matches
+                exact_mask = pd.Series([True] * len(df_clean), index=df_clean.index)
+                
+                if search_family:
+                    exact_mask &= df_clean['family'] == search_family
+                if search_stone:
+                    exact_mask &= df_clean['stone_color_type'] == search_stone
+                if search_length > 0:
+                    exact_mask &= df_clean['length_cm'] == search_length
+                if search_width > 0:
+                    exact_mask &= df_clean['width_cm'] == search_width
+                if search_height > 0:
+                    exact_mask &= df_clean['height_cm'] == search_height
+                
+                exact_matches = df_clean[exact_mask]
+                
+                display_cols = ['contract_product_name', 'family', 'stone_color_type', 'length_cm', 'width_cm', 
+                                'height_cm', 'charge_unit', 'sales_price', 'price_m3', 'segment']
+                available_cols = [col for col in display_cols if col in df_clean.columns]
+                
+                # Display exact matches
+                if len(exact_matches) > 0:
+                    st.markdown(f"#### ✅ Tìm thấy {len(exact_matches)} sản phẩm khớp chính xác")
+                    st.dataframe(exact_matches[available_cols], use_container_width=True, height=300)
                     
-                    # Display results
-                    display_cols = ['product_name', 'family', 'stone_class', 'length_cm', 'width_cm', 
-                                    'height_cm', 'charge_unit', 'list_price', 'price_m3', 'segment']
-                    st.dataframe(
-                        similar[display_cols],
-                        use_container_width=True
-                    )
-                    
-                    # Price comparison chart
-                    fig = px.bar(
-                        similar,
-                        x='product_name',
-                        y='price_m3',
-                        color='segment',
-                        title="So sánh giá sản phẩm tương tự",
-                        color_discrete_map={
-                            'Super premium': '#9e7cc1',
-                            'Premium': '#ff6b6b',
-                            'Common': '#ffd93d',
-                            'Economy': '#6bcb77'
-                        }
-                    )
-                    fig.update_xaxes(tickangle=45)
-                    st.plotly_chart(fig, use_container_width=True)
+                    # Statistics for exact matches
+                    valid_prices = exact_matches['sales_price']
+                    if len(valid_prices) > 0:
+                        st.markdown("##### 📊 Thống kê giá (khớp chính xác)")
+                        stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+                        with stat_col1:
+                            st.metric("Thấp nhất", f"${valid_prices.min():,.2f}")
+                        with stat_col2:
+                            st.metric("Cao nhất", f"${valid_prices.max():,.2f}")
+                        with stat_col3:
+                            st.metric("Trung bình", f"${valid_prices.mean():,.2f}")
+                        with stat_col4:
+                            st.metric("Trung vị", f"${valid_prices.median():,.2f}")
                 else:
-                    st.warning("Không tìm thấy sản phẩm phù hợp")
+                    st.warning("⚠️ Không tìm thấy sản phẩm khớp chính xác với tiêu chí.")
+                
+                # Step 2: Show related products if checkbox is checked
+                if show_related:
+                    st.divider()
+                    st.markdown(f"#### 🔗 Sản phẩm liên quan (top {related_count})")
+                    
+                    # Find related products based on partial criteria
+                    related_mask = pd.Series([False] * len(df_clean), index=df_clean.index)
+                    
+                    if search_family:
+                        related_mask |= df_clean['family'] == search_family
+                    if search_stone:
+                        related_mask |= df_clean['stone_color_type'] == search_stone
+                    
+                    # Exclude exact matches
+                    related_mask &= ~exact_mask
+                    
+                    related_products = df_clean[related_mask].copy()
+                    
+                    # Sort by dimension similarity if dimensions provided
+                    if search_length > 0 and search_width > 0 and search_height > 0:
+                        related_products['dim_diff'] = (
+                            abs(related_products['length_cm'] - search_length) +
+                            abs(related_products['width_cm'] - search_width) +
+                            abs(related_products['height_cm'] - search_height)
+                        )
+                        related_products = related_products.nsmallest(related_count, 'dim_diff')
+                    else:
+                        related_products = related_products.head(related_count)
+                    
+                    if len(related_products) > 0:
+                        st.dataframe(related_products[available_cols], use_container_width=True, height=300)
+                        
+                        # Statistics for related products
+                        valid_prices = related_products['sales_price']
+                        if len(valid_prices) > 0:
+                            st.markdown("##### 📊 Thống kê giá (sản phẩm liên quan)")
+                            stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+                            with stat_col1:
+                                st.metric("Thấp nhất", f"${valid_prices.min():,.2f}")
+                            with stat_col2:
+                                st.metric("Cao nhất", f"${valid_prices.max():,.2f}")
+                            with stat_col3:
+                                st.metric("Trung bình", f"${valid_prices.mean():,.2f}")
+                            with stat_col4:
+                                st.metric("Trung vị", f"${valid_prices.median():,.2f}")
+                            
+                            # Summary
+                            price_range = valid_prices.max() - valid_prices.min()
+                            st.caption(f"Khoảng giá: ${price_range:,.2f} | Độ lệch chuẩn: ${valid_prices.std():,.2f}")
+                    else:
+                        st.info("Không tìm thấy sản phẩm liên quan.")
     
     # Tab 4: Model Performance
     with tab4:
@@ -755,15 +947,22 @@ def main():
         if st.session_state.model_metrics is not None:
             metrics = st.session_state.model_metrics
             
+            # Show training info with data cleaning details
+            removed = metrics.get('removed_samples', 0)
+            n_est = metrics.get('n_estimators_used', 'N/A')
+            st.info(f"📊 Model huấn luyện với **{metrics.get('train_samples', 'N/A'):,}** mẫu hợp lệ ({removed:,} mẫu bị loại bỏ). Dự đoán: **{metrics.get('target_col', 'sales_price')}**")
+            
+            # Main metrics
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("MAE", f"${metrics['mae']:,.2f}", help="Mean Absolute Error")
+                st.metric("MAE", f"${metrics['mae']:,.2f}", help="Mean Absolute Error - Sai số tuyệt đối trung bình")
             with col2:
-                st.metric("R² Score", f"{metrics['r2']:.3f}", help="Coefficient of Determination")
+                st.metric("R² Score", f"{metrics['r2']:.3f}", help="Coefficient of Determination - Càng gần 1 càng tốt")
             with col3:
                 st.metric("CV MAE Mean", f"${metrics['cv_mae_mean']:,.2f}", help="Cross-Validation MAE")
             with col4:
-                st.metric("CV MAE Std", f"${metrics['cv_mae_std']:,.2f}", help="Cross-Validation Std")
+                cv_r2 = metrics.get('cv_r2_mean', metrics['r2'])
+                st.metric("CV R² Mean", f"{cv_r2:.3f}", help="Cross-Validation R² - Đánh giá tổng quát")
             
             st.divider()
             
@@ -783,19 +982,33 @@ def main():
             
             # Model info
             with st.expander("ℹ️ Thông tin Model"):
-                st.markdown("""
-                **Thuật toán:** Gradient Boosting Regressor
+                st.markdown(f"""
+                **Mục tiêu dự đoán:** `sales_price` (Giá bán theo đơn vị charge_unit)
                 
-                **Hyperparameters:**
-                - n_estimators: 100
-                - learning_rate: 0.1
-                - max_depth: 5
-                - min_samples_split: 5
-                - min_samples_leaf: 2
+                **Thuật toán:** Gradient Boosting Regressor (Early Stopping)
+                
+                **Hyperparameters (Optimized):**
+                - n_estimators: 200 (thực tế dùng: {n_est})
+                - learning_rate: 0.05
+                - max_depth: 4
+                - min_samples_split: 10
+                - min_samples_leaf: 5
+                - subsample: 0.8 (Stochastic GB)
+                - max_features: sqrt
+                - early stopping: 10 iterations
                 
                 **Features:**
-                - Categorical: family, stone_class, stone_color_type, charge_unit
+                - Categorical: family, stone_color_type, charge_unit
                 - Numerical: length_cm, width_cm, height_cm, volume_m3, area_m2
+                
+                > ⚠️ **Data Leakage Prevention:** `segment` đã được loại bỏ khỏi features vì nó được 
+                > tính từ giá (price_m3). Việc dùng segment làm feature sẽ gây ra data leakage và 
+                > làm R² score cao giả tạo.
+                
+                **Data Cleaning:**
+                - Loại bỏ giá = 0, âm, hoặc missing
+                - Loại bỏ outliers (ngoài 1st-99th percentile)
+                - Loại bỏ rows có missing values trong features
                 """)
         else:
             st.info("👈 Huấn luyện model để xem hiệu suất (nút 🤖 ở sidebar)")
@@ -826,15 +1039,52 @@ def main():
         
         st.markdown(f"**Hiển thị {len(filtered_df):,} / {len(st.session_state.data):,} sản phẩm**")
         
-        # Display data
+        # Define all columns from the contract query in logical order
+        # These match the fields from contract_query.txt and salesforce_loader.py
+        all_contract_columns = [
+            'contract_product_name',   # Name
+            'contract_name',           # Contract__r.Name
+            'account_code',            # Account_Code_C__c
+            'stone_color_type',        # Product__r.STONE_Color_Type__c
+            'product_code',            # Product__r.ProductCode
+            'family',                  # Product__r.Family
+            'segment',                 # Segment__c
+            'created_date',            # Created_Date__c
+            'fy_year',                 # Fiscal Year (calculated)
+            'product_description',     # Product_Discription__c
+            'product_description_vn',  # Product__r.Product_description_in_Vietnamese__c
+            'length_cm',               # Length__c
+            'width_cm',                # Width__c
+            'height_cm',               # Height__c
+            'quantity',                # Quantity__c
+            'crates',                  # Crates__c
+            'm2',                      # m2__c
+            'm3',                      # m3__c
+            'ml',                      # ml__c
+            'tons',                    # Tons__c
+            'sales_price',             # Sales_Price__c
+            'charge_unit',             # Charge_Unit__c
+            'total_price_usd',         # Total_Price_USD__c
+            'price_m3',                # Calculated price per m3
+        ]
+        
+        # Filter to only columns that exist in the dataframe
+        available_columns = [col for col in all_contract_columns if col in filtered_df.columns]
+        
+        # Add any remaining columns not in the predefined list
+        remaining_columns = [col for col in filtered_df.columns if col not in available_columns]
+        display_columns = available_columns + remaining_columns
+        
+        
+        # Display data with all columns (using original field names as headers)
         st.dataframe(
-            filtered_df,
+            filtered_df[display_columns],
             use_container_width=True,
             height=500
         )
         
         # Download button
-        csv = filtered_df.to_csv(index=False)
+        csv = filtered_df[display_columns].to_csv(index=False)
         st.download_button(
             "📥 Tải xuống CSV",
             csv,
