@@ -23,9 +23,18 @@ class SalesforceDataLoader:
             password: Salesforce password  
             security_token: Salesforce security token
         """
-        self.username = username or os.getenv("SALESFORCE_USERNAME")
-        self.password = password or os.getenv("SALESFORCE_PASSWORD")
-        self.security_token = security_token or os.getenv("SALESFORCE_SECURITY_TOKEN")
+        # Try to get credentials from Streamlit secrets first (for Streamlit Cloud)
+        # Then fall back to environment variables (for local development)
+        try:
+            import streamlit as st
+            self.username = username or st.secrets.get("SALESFORCE_USERNAME") or os.getenv("SALESFORCE_USERNAME")
+            self.password = password or st.secrets.get("SALESFORCE_PASSWORD") or os.getenv("SALESFORCE_PASSWORD")
+            self.security_token = security_token or st.secrets.get("SALESFORCE_SECURITY_TOKEN") or os.getenv("SALESFORCE_SECURITY_TOKEN")
+        except Exception:
+            # Fallback to environment variables only
+            self.username = username or os.getenv("SALESFORCE_USERNAME")
+            self.password = password or os.getenv("SALESFORCE_PASSWORD")
+            self.security_token = security_token or os.getenv("SALESFORCE_SECURITY_TOKEN")
         self._sf = None
         
     @property
