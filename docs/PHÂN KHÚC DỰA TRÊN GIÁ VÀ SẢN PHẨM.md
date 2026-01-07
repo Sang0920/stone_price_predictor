@@ -1,0 +1,8 @@
+# PHÂN KHÚC DỰA TRÊN GIÁ VÀ SẢN PHẨM
+
+| Phân Khúc (Segment) | Khoảng Giá (Price Range) | Sản Phẩm (Products) |
+| :--- | :--- | :--- |
+| **Super premium**<br>(Siêu cao cấp) | $\ge1500\$/m3$ | **Thin paving stones with thickness of 1.0cm; 1.2cm; 1.5cm**<br>(Đá lát mỏng dày 1.0cm; 1.2cm; 1.5cm)<br><br>**WallCovering, poolconvering and threshold coverings**<br>(Đá nắp tường rào, hồ bơi, bệ cửa)<br><br>**Decorating stones, special processing, own specifications**<br>(Đá mỹ nghệ, gia công đặc biệt, quy cách riêng) |
+| **Premium**<br>(Cao cấp) | $\ge800\$/m3$ | **Interior and exterior Tiles with thickness of 2.0 cm - 5.0 cm**<br>(Đá lát nội, ngoại thất dày 2.0 cm - 5.0 cm)<br><br>**Slabs and Steps**<br>(Đá slab tấm lớn, đá ốp bậc thang các loại)<br><br>**Block steps, palisades and blocks with all sides finishing: flamed/ honed/tumbled...**<br>(Đá bậc thang, đá cây, đá khối xử lý nhiều mặt) |
+| **Common**<br>(Đại trà - phổ thông) | $\ge400\$/m3$ | **Palisades all sides sawn and cleaved**<br>(Đá cây cưa lột các loại)<br><br>**Paver/Cube... with one side flamed/ bush hammer, sides split**<br>(Đá 1 mặt đốt băm, cạnh chẻ tay)<br><br>**Stones with both machine cut and handmade finishing**<br>(Đá kết hợp vừa cắt máy, vừa thủ công)<br><br>**Tumbled**<br>(Đá mẻ) |
+| **Economy**<br>(Kinh tế) | $<400\$/m3$ | **Cubes, wall stone with all sides natural split**<br>(Đá cubic, tường rào gỗ tay)<br><br>**Paver- all sides natual split with thickness over 6cm**<br>(Đá tấm gỗ tay dày 6 cm trở lên) |

@@ -243,12 +243,14 @@ class SalesforceDataLoader:
         SELECT 
             Name,
             Contract__r.Name,
-            Account_Code_C__c,
+            Contract__r.Account__r.Account_Code__c,
+            Contract__r.Account__r.Nhom_Khu_vuc_KH__c,
             Product__r.STONE_Color_Type__c,
             Product__r.StockKeepingUnit,
             Product__r.Family,
             Segment__c,
             Created_Date__c,
+            Delivery_Date__c,
             Product_Discription__c,
             Product__r.Product_description_in_Vietnamese__c,
             Length__c,
@@ -269,12 +271,12 @@ class SalesforceDataLoader:
         conditions = []
         if account_code:
             safe_code = account_code.replace("'", "\\'")
-            conditions.append(f"Account_Code_C__c = '{safe_code}'")
+            conditions.append(f"Contract__r.Account__r.Account_Code__c = '{safe_code}'")
         
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         
-        query += " ORDER BY Created_Date__c DESC"
+        query += " ORDER BY Created_Date__c DESC NULLS LAST"
         
         result = self.sf.query_all(query)
         records = result.get("records", [])
@@ -283,6 +285,8 @@ class SalesforceDataLoader:
         for r in records:
             product = r.get("Product__r") or {}
             contract = r.get("Contract__r") or {}
+            # Get Account from nested Contract__r.Account__r
+            account = contract.get("Account__r") or {}
             
             # Use dimensions from contract product
             length = r.get("Length__c") or 0
@@ -299,8 +303,12 @@ class SalesforceDataLoader:
             
             segment = r.get("Segment__c") or "Unknown"
             
-            # Extract fiscal year from Created_Date__c
+            # Get date: use Created_Date__c, fallback to Delivery_Date__c
             created_date = r.get("Created_Date__c")
+            if not created_date:
+                created_date = r.get("Delivery_Date__c")
+            
+            # Extract fiscal year from date
             fy_year = None
             if created_date:
                 try:
@@ -312,7 +320,8 @@ class SalesforceDataLoader:
             data.append({
                 "contract_product_name": r.get("Name"),
                 "contract_name": contract.get("Name"),
-                "account_code": r.get("Account_Code_C__c"),
+                "account_code": account.get("Account_Code__c"),  # From Contract__r.Account__r.Account_Code__c
+                "customer_regional_group": account.get("Nhom_Khu_vuc_KH__c"),  # Customer Regional Group
                 "stone_color_type": product.get("STONE_Color_Type__c"),
                 "sku": product.get("StockKeepingUnit"),  # SKU like BD01DOT2-06004060
                 "family": product.get("Family"),
