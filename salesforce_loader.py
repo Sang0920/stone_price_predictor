@@ -35,6 +35,91 @@ PROCESSING_CODE_MAP = {
 }
 
 
+# Application Code mapping (SKU positions 3-4)
+# Maps code like "1.1", "1.3" to application names
+# Per "Copy of Code Rule AND Product list" and "Application Mapping" docs
+APPLICATION_CODE_MAP = {
+    # Format: 'X.Y' -> (English Name, Vietnamese Name)
+    '1.1': ('Cubes / Cobbles', 'Cubic (Đá vuông)'),
+    '1.3': ('Paving stone / Paving slab', 'Đá lát ngoài trời'),
+    '2.1': ('Wall stone / Wall brick', 'Đá xây tường rào'),
+    '2.2': ('Wall covering / Wall top', 'Đá ốp tường rào'),
+    '2.3': ('Rockface Walling', 'Đá mặt lỗi ốp tường'),
+    '3.1': ('Palisades', 'Đá cây'),
+    '3.2': ('Border / Kerbs', 'Đá bó vỉa hè loại thẳng'),
+    '3.3': ('Corner', 'Đá bó vỉa hè, loại góc hoặc cong'),
+    '4.1': ('Stair / Step (Block)', 'Đá bậc thang nguyên khối'),
+    '4.2': ('Step (Cladding)', 'Đá ốp bậc thang'),
+    '5.1': ('Block', 'Đá khối'),
+    '6.1': ('Pool surrounding', 'Đá ghép hồ bơi'),
+    '6.2': ('Window sill', 'Đá bệ cửa sổ, gờ tường'),
+    '7.2': ('Tile / Paver', 'Đá lát, cắt quy cách'),
+    '8.1': ('Skirtings', 'Đá len chân tường'),
+    '9.1': ('Slab', 'Đá slab kích thước khổ lớn'),
+    # Keep numeric versions for backward compatibility
+    '01': ('Cubes / Cobbles', 'Cubic (Đá vuông)'),
+    '11': ('Cubes / Cobbles', 'Cubic (Đá vuông)'),
+    '13': ('Paving stone / Paving slab', 'Đá lát ngoài trời'),
+}
+
+
+def extract_application_code(sku: str) -> tuple:
+    """
+    Extract application code from SKU.
+    
+    SKU format variations:
+    1. New format with dot: BD5.1DOX0-... (positions 3-5 = "5.1")
+    2. Old format numeric: BD01DOT2-... (positions 3-4 = "01" -> "0.1")
+    
+    Examples:
+    - MB4.1GCT0-1000300160 -> 4.1 (Stair / Step)
+    - BD5.1DOX0-0500500500 -> 5.1 (Block)
+    - BD7.2DOX1-0900600030 -> 7.2 (Tile / Paver)
+    - BX1.0CTA9-0100100090 -> 1.1 (Cubes) - note: 1.0 may map to 1.1
+    
+    Args:
+        sku: The SKU/StockKeepingUnit string
+        
+    Returns:
+        Tuple of (code, english_name, vietnamese_name)
+    """
+    if not sku or not isinstance(sku, str):
+        return ('', 'Unknown', 'Không xác định')
+    
+    sku_upper = sku.upper().strip()
+    
+    # Strategy 1: Extract X.Y format from positions 3-5 (index 2-4)
+    # e.g., "BD5.1DOX0-..." -> "5.1"
+    if len(sku_upper) >= 5 and sku_upper[3] == '.':
+        dotted_code = sku_upper[2:5]  # e.g., "5.1"
+        if dotted_code in APPLICATION_CODE_MAP:
+            eng, vn = APPLICATION_CODE_MAP[dotted_code]
+            return (dotted_code, eng, vn)
+        # Handle special case: X.0 might map to X.1
+        if dotted_code.endswith('.0'):
+            alt_code = dotted_code[0] + '.1'
+            if alt_code in APPLICATION_CODE_MAP:
+                eng, vn = APPLICATION_CODE_MAP[alt_code]
+                return (alt_code, eng, vn)
+        # Not in mapping - return code with "Other" label
+        return (dotted_code, f'Other ({dotted_code})', f'Khác ({dotted_code})')
+    
+    # Strategy 2: Old numeric format - positions 3-4 (index 2-3)
+    # e.g., "BD01DOT2-..." -> "01" -> "0.1"
+    if len(sku_upper) >= 4:
+        numeric_code = sku_upper[2:4]
+        if numeric_code.isdigit() and len(numeric_code) == 2:
+            dotted_code = f"{numeric_code[0]}.{numeric_code[1]}"
+            if dotted_code in APPLICATION_CODE_MAP:
+                eng, vn = APPLICATION_CODE_MAP[dotted_code]
+                return (dotted_code, eng, vn)
+            # Not in mapping - return code with "Other" label
+            return (dotted_code, f'Other ({dotted_code})', f'Khác ({dotted_code})')
+    
+    # Fallback: No application code found
+    return ('', 'Unknown', 'Không xác định')
+
+
 def extract_processing_code(product_code: str) -> tuple:
     """
     Extract main processing code from product SKU.
@@ -347,7 +432,11 @@ class SalesforceDataLoader:
                 "area_m2": area_m2,
                 # Main processing code extracted from SKU (positions 5-7)
                 "processing_code": extract_processing_code(product.get("StockKeepingUnit"))[0],
-                "processing_name": extract_processing_code(product.get("StockKeepingUnit"))[1]
+                "processing_name": extract_processing_code(product.get("StockKeepingUnit"))[1],
+                # Application code extracted from SKU (positions 3-4)
+                "application_code": extract_application_code(product.get("StockKeepingUnit"))[0],
+                "application": extract_application_code(product.get("StockKeepingUnit"))[1],
+                "application_vn": extract_application_code(product.get("StockKeepingUnit"))[2],
             })
         
         return pd.DataFrame(data)

@@ -194,6 +194,30 @@ PRODUCT_FAMILIES = [
     'STAIR', 'ART', 'High-Class', 'SKIRTING', 'SLAB'
 ]
 
+# Application codes (SKU positions 3-4) with English names
+# Per "Copy of Code Rule AND Product list" and "Application Mapping" docs
+APPLICATION_CODES = [
+    ('1.1', 'Cubes / Cobbles'),
+    ('1.3', 'Paving stone / Paving slab'),
+    ('2.1', 'Wall stone / Wall brick'),
+    ('2.2', 'Wall covering / Wall top'),
+    ('2.3', 'Rockface Walling'),
+    ('3.1', 'Palisades'),
+    ('3.2', 'Border / Kerbs'),
+    ('3.3', 'Corner'),
+    ('4.1', 'Stair / Step (Block)'),
+    ('4.2', 'Step (Cladding)'),
+    ('5.1', 'Block'),
+    ('6.1', 'Pool surrounding'),
+    ('6.2', 'Window sill'),
+    ('7.2', 'Tile / Paver'),
+    ('8.1', 'Skirtings'),
+    ('9.1', 'Slab'),
+]
+
+# Application codes for search (includes 'All' option)
+APPLICATION_CODES_SEARCH = [('', 'All')] + APPLICATION_CODES
+
 # Stone Color Types and their family groupings
 STONE_COLOR_TYPES = [
     'BLACK BASALT', 'BLUESTONE', 'GREY GRANITE', 'ABSOLUTE BASALT',
@@ -240,29 +264,30 @@ CUSTOMER_REGIONAL_GROUPS = [
     ('Nhóm đầu 9', 'Nhóm đầu 9'),
 ]
 
-# Processing codes with English names (for search dropdown) - no empty/OTHER option
+# Processing codes with English and Vietnamese names
+# Format: (code, English, Vietnamese)
 PROCESSING_CODES = [
-    ('CUA', 'Sawn'),
-    ('DOT', 'Flamed'),
-    ('DOC', 'Flamed Brush'),
-    ('DOX', 'Flamed Water'),
-    ('HON', 'Honed'),
-    ('CTA', 'Split Handmade'),
-    ('CLO', 'Sawn then Cleaved'),
-    ('TDE', 'Chiseled'),
-    ('GCR', 'Vibrated Honed Tumbled'),
-    ('GCT', 'Old Imitation'),
-    ('MGI', 'Scraped'),
-    ('PCA', 'Sandblasted'),
-    ('QME', 'Tumbled'),
-    ('TLO', 'Cleaved'),
-    ('BON', 'Polished'),
-    ('BAM', 'Bush Hammered'),
-    ('CHA', 'Brush'),
+    ('CUA', 'Sawn', 'Cưa'),
+    ('DOT', 'Flamed', 'Đốt'),
+    ('DOC', 'Flamed Brush', 'Đốt Chải'),
+    ('DOX', 'Flamed Water', 'Đốt Xịt Nước'),
+    ('HON', 'Honed', 'Hon/Mài Mịn'),
+    ('CTA', 'Split Handmade', 'Chẻ Tay'),
+    ('CLO', 'Sawn then Cleaved', 'Cưa Lột'),
+    ('TDE', 'Chiseled', 'Tước Đẽo'),
+    ('GCR', 'Vibrated Honed Tumbled', 'Gọt Cạnh Rung'),
+    ('GCT', 'Old Imitation', 'Giả Cổ Tay'),
+    ('MGI', 'Scraped', 'Mài Giấy'),
+    ('PCA', 'Sandblasted', 'Phun Cát'),
+    ('QME', 'Tumbled', 'Quay Mẻ'),
+    ('TLO', 'Cleaved', 'Tự Nhiên Lồi'),
+    ('BON', 'Polished', 'Bóng'),
+    ('BAM', 'Bush Hammered', 'Băm'),
+    ('CHA', 'Brush', 'Chải'),
 ]
 
 # Processing codes for search (includes 'All' option)
-PROCESSING_CODES_SEARCH = [('', 'All')] + PROCESSING_CODES
+PROCESSING_CODES_SEARCH = [('', 'All', 'Tất cả')] + PROCESSING_CODES
 
 
 # ============ Data Generation (Simulated Salesforce Data) ============
@@ -859,7 +884,7 @@ class SimilarityPricePredictor:
         length_cm: float,
         width_cm: float,
         height_cm: float,
-        family: str,
+        application_codes: list,  # List of application codes (empty = all)
         customer_regional_group: str,
         charge_unit: str,
         stone_priority: str = 'Ưu tiên 1',  # Exact, Same Family, All
@@ -894,9 +919,10 @@ class SimilarityPricePredictor:
             mask &= df['processing_code'] == processing_code
         # Ưu tiên 2+: No filter (All processing types)
         
-        # 3. Family (Application) Filter
-        if family:
-            mask &= df['family'] == family
+        # 3. Application Filter (extracted from SKU positions 3-4)
+        # If application_codes is not empty, filter by those codes
+        if application_codes and len(application_codes) > 0 and 'application_code' in df.columns:
+            mask &= df['application_code'].isin(application_codes)
         
         # 4. Charge Unit Filter
         if charge_unit:
@@ -991,7 +1017,7 @@ class SimilarityPricePredictor:
         length_cm: float,
         width_cm: float,
         height_cm: float,
-        family: str,
+        application_codes: list,  # List of application codes (empty = all)
         customer_regional_group: str,
         charge_unit: str,
     ) -> Tuple[Dict[str, Any], pd.DataFrame, str]:
@@ -1020,7 +1046,7 @@ class SimilarityPricePredictor:
                 length_cm=length_cm,
                 width_cm=width_cm,
                 height_cm=height_cm,
-                family=family,
+                application_codes=application_codes,
                 customer_regional_group=customer_regional_group,
                 charge_unit=charge_unit,
                 stone_priority=stone_p,
@@ -1062,19 +1088,27 @@ def main():
         # Optional account code filter for Salesforce
         account_filter = st.text_input(
             "Mã khách hàng (tùy chọn)",
-            placeholder="e.g., ACC-001",
+            placeholder="e.g., X09",
             help="Lọc theo Account_Code_C__c"
         )
         
         if st.button("🔄 Tải / Làm mới dữ liệu từ Salesforce", use_container_width=True):
-            with st.spinner("Đang tải dữ liệu từ Salesforce..."):
+            with st.spinner("Đang tải và xử lý dữ liệu..."):
                 if SALESFORCE_AVAILABLE:
                     try:
+                        # Step 1: Load data from Salesforce
                         loader = SalesforceDataLoader()
                         df = loader.get_contract_products(account_code=account_filter if account_filter else None)
                         if len(df) > 0:
                             st.session_state.data = df
-                            st.success(f"✅ Đã tải {len(df)} sản phẩm từ Salesforce!")
+                            
+                            # Step 2: Auto-preprocess data
+                            predictor = SimilarityPricePredictor()
+                            count = predictor.load_data(df)
+                            st.session_state.model = predictor
+                            st.session_state.model_metrics = {'loaded_samples': count}
+                            
+                            st.success(f"✅ Đã tải {len(df):,} sản phẩm, sẵn sàng với {count:,} sản phẩm có giá!")
                         else:
                             st.warning("⚠️ Không tìm thấy dữ liệu từ Salesforce.")
                     except Exception as e:
@@ -1082,14 +1116,11 @@ def main():
                 else:
                     st.error("❌ Salesforce chưa được cấu hình. Vui lòng kiểm tra file .env")
         
+        # Show status
         if st.session_state.data is not None:
-            if st.button("⚙️ Tiền xử lý dữ liệu", use_container_width=True):
-                with st.spinner("Đang tiền xử lý dữ liệu..."):
-                    predictor = SimilarityPricePredictor()
-                    count = predictor.load_data(st.session_state.data)
-                    st.session_state.model = predictor
-                    st.session_state.model_metrics = {'loaded_samples': count}
-                    st.success(f"✅ Đã sẵn sàng với {count:,} sản phẩm có giá!")
+            count = len(st.session_state.data)
+            ready_count = st.session_state.model_metrics.get('loaded_samples', 0) if st.session_state.model_metrics else 0
+            st.success(f"✅ Đã sẵn sàng với {count:,} sản phẩm ({ready_count:,} sản phẩm có giá)")
         
         st.divider()
     
@@ -1128,14 +1159,25 @@ def main():
         with col1:
             st.markdown("#### Thông tin sản phẩm")
             
-            family = st.selectbox("Loại sản phẩm (Family)", PRODUCT_FAMILIES)
+            # Application multiselect - allows selecting multiple applications (e.g., 4.1 + 4.2 for "Step")
+            # Empty selection = All (no filter)
+            application_lookup = {code: name for code, name in APPLICATION_CODES}
+            selected_applications = st.multiselect(
+                "Ứng dụng sản phẩm (Application)",
+                options=[code for code, name in APPLICATION_CODES],
+                format_func=lambda x: f"{x} - {application_lookup.get(x, 'Unknown')}",
+                default=[],
+                help="Chọn một hoặc nhiều ứng dụng. Để trống = Tất cả"
+            )
             stone_color = st.selectbox("Màu đá (Stone Color)", STONE_COLOR_TYPES)
             
-            # Main Processing dropdown (no empty/OTHER option)
+            # Main Processing dropdown with English and Vietnamese names
+            # Create a dict for lookup: code -> (english, vietnamese)
+            processing_lookup = {code: (eng, vn) for code, eng, vn in PROCESSING_CODES}
             processing_code = st.selectbox(
-                "Main Processing",
-                options=[code for code, name in PROCESSING_CODES],
-                format_func=lambda x: f"{x} - {dict(PROCESSING_CODES).get(x, 'Other')}",
+                "Gia công chính (Main Processing)",
+                options=[code for code, eng, vn in PROCESSING_CODES],
+                format_func=lambda x: f"{x} - {processing_lookup.get(x, ('Other', 'Khác'))[0]} ({processing_lookup.get(x, ('Other', 'Khác'))[1]})",
                 index=0
             )
             
@@ -1215,6 +1257,35 @@ def main():
 | **Khu vực** | Đúng khu vực | Tất cả khu vực | - |
                 """)
             
+            with st.expander("📦 Quy tắc ứng dụng sản phẩm (Application Mapping)"):
+                st.markdown("""
+**Mã ứng dụng** trích xuất từ vị trí 3-4 trong SKU (chuyển đổi sang định dạng X.Y).
+
+| Mã | English | Tiếng Việt |
+|----|---------|------------|
+| 1.1 | Cubes / Cobbles | Cubic (Đá vuông) |
+| 1.3 | Paving stone / Paving slab | Đá lát ngoài trời |
+| 2.1 | Wall stone / Wall brick | Đá xây tường rào |
+| 2.2 | Wall covering / Wall top | Đá ốp tường rào |
+| 2.3 | Rockface Walling | Đá mặt lỗi ốp tường |
+| 3.1 | Palisades | Đá cây |
+| 3.2 | Border / Kerbs | Đá bó vỉa hè loại thẳng |
+| 3.3 | Corner | Đá bó vỉa hè, loại góc hoặc cong |
+| 4.1 | Stair / Step (Block) | Đá bậc thang nguyên khối |
+| 4.2 | Step (Cladding) | Đá ốp bậc thang |
+| 5.1 | Block | Đá khối |
+| 6.1 | Pool surrounding | Đá ghép hồ bơi |
+| 6.2 | Window sill | Đá bệ cửa sổ, gờ tường |
+| 7.2 | Tile / Paver | Đá lát, cắt quy cách |
+| 8.1 | Skirtings | Đá len chân tường |
+| 9.1 | Slab | Đá slab kích thước khổ lớn |
+
+**Ví dụ SKU:** `BD01DOT2-06004060`
+- `BD` = Vật liệu (Basalt Đen)
+- `01` → `0.1` = **Ứng dụng** (Cubes)
+- `DOT` = Gia công (Đốt/Flamed)
+                """)
+            
             customer_type = st.selectbox(
                 "Phân loại khách hàng",
                 ['C', 'A', 'B', 'D', 'E', 'F'],
@@ -1275,7 +1346,7 @@ def main():
                     length_cm=length,
                     width_cm=width,
                     height_cm=height,
-                    family=family,
+                    application_codes=selected_applications,
                     customer_regional_group=customer_regional_group,
                     charge_unit=charge_unit,
                     stone_priority=stone_priority,
@@ -1321,13 +1392,14 @@ def main():
                     
                     st.divider()
                     
-                    # Calculate segment for pricing
+                    # Calculate segment for pricing (use first selected application or empty for classify_segment)
+                    first_app = selected_applications[0] if selected_applications else ''
                     est_price_m3 = convert_price(
                         estimation['estimated_price'], charge_unit, 'USD/M3',
                         height_cm=height, length_cm=length, width_cm=width,
                         tlr=get_tlr(stone_color, processing_code)
                     )
-                    segment = classify_segment(est_price_m3, height_cm=height, family=family, processing_code=processing_code)
+                    segment = classify_segment(est_price_m3, height_cm=height, family=first_app, processing_code=processing_code)
                     
                     # Customer price adjustment with segment awareness
                     price_info = calculate_customer_price(
@@ -1350,8 +1422,9 @@ def main():
                 volume_m3 = calculate_volume_m3(length, width, height)
                 area_m2 = calculate_area_m2(length, width)
                 tlr = get_tlr(stone_color, processing_code)
-                hs = get_hs_factor((length, width, height), processing_code, family)
-                weight_tons = calculate_weight_tons(volume_m3, stone_color, processing_code, (length, width, height), family)
+                first_app = selected_applications[0] if selected_applications else ''
+                hs = get_hs_factor((length, width, height), processing_code, first_app)
+                weight_tons = calculate_weight_tons(volume_m3, stone_color, processing_code, (length, width, height), first_app)
                 
                 col_info1, col_info2 = st.columns(2)
                 with col_info1:
@@ -1387,8 +1460,9 @@ def main():
                 display_cols = [
                     'contract_product_name', 'contract_name', 'account_code',
                     'customer_regional_group',  # Regional Group now visible
-                    'sku', 'processing_code', 'processing_name',
-                    'stone_color_type', 'family', 'segment',
+                    'sku', 'application_code', 'application',
+                    'processing_code', 'processing_name',
+                    'stone_color_type', 'segment',
                     'length_cm', 'width_cm', 'height_cm',
                     'charge_unit', 'sales_price', 'price_m3',
                     'created_date', 'fy_year',
@@ -1398,6 +1472,8 @@ def main():
                 # Column config for headers
                 col_config = {
                     'sku': st.column_config.TextColumn('SKU'),
+                    'application_code': st.column_config.TextColumn('App Code'),
+                    'application': st.column_config.TextColumn('Application'),
                     'processing_code': st.column_config.TextColumn('Main Processing Code'),
                     'processing_name': st.column_config.TextColumn('Main Processing'),
                     'customer_regional_group': st.column_config.TextColumn('Regional Group'),
@@ -1507,6 +1583,117 @@ def main():
             }
         )
         st.plotly_chart(fig_scatter, use_container_width=True)
+        
+        st.divider()
+        
+        # New charts section
+        st.markdown("### 📊 Phân tích nâng cao")
+        
+        chart_col3, chart_col4 = st.columns(2)
+        
+        with chart_col3:
+            # Price by Application (new column)
+            if 'application' in df_clean.columns:
+                app_prices = df_clean.groupby('application').agg({
+                    'sales_price': ['mean', 'count']
+                }).round(2)
+                app_prices.columns = ['Giá TB', 'Số lượng']
+                app_prices = app_prices.sort_values('Giá TB', ascending=True)
+                
+                fig_app = px.bar(
+                    x=app_prices['Giá TB'].values,
+                    y=app_prices.index,
+                    orientation='h',
+                    title="💰 Giá trung bình theo Ứng dụng (Application)",
+                    labels={'x': 'Giá TB (USD)', 'y': 'Application'},
+                    text=app_prices['Số lượng'].values
+                )
+                fig_app.update_traces(marker_color='#48bb78', texttemplate='n=%{text}', textposition='inside')
+                st.plotly_chart(fig_app, use_container_width=True)
+        
+        with chart_col4:
+            # Price by Processing type
+            if 'processing_name' in df_clean.columns:
+                proc_prices = df_clean.groupby('processing_name').agg({
+                    'sales_price': ['mean', 'count']
+                }).round(2)
+                proc_prices.columns = ['Giá TB', 'Số lượng']
+                proc_prices = proc_prices.sort_values('Giá TB', ascending=True)
+                
+                fig_proc = px.bar(
+                    x=proc_prices['Giá TB'].values,
+                    y=proc_prices.index,
+                    orientation='h',
+                    title="🔧 Giá trung bình theo Gia công (Processing)",
+                    labels={'x': 'Giá TB (USD)', 'y': 'Processing'},
+                    text=proc_prices['Số lượng'].values
+                )
+                fig_proc.update_traces(marker_color='#ed8936', texttemplate='n=%{text}', textposition='inside')
+                st.plotly_chart(fig_proc, use_container_width=True)
+        
+        chart_col5, chart_col6 = st.columns(2)
+        
+        with chart_col5:
+            # Price trend by year
+            if 'fy_year' in df_clean.columns:
+                yearly_data = df_clean.groupby('fy_year').agg({
+                    'sales_price': ['mean', 'median', 'count'],
+                    'price_m3': 'mean'
+                }).round(2)
+                yearly_data.columns = ['Giá TB', 'Giá Trung vị', 'Số đơn hàng', 'Giá/m³ TB']
+                yearly_data = yearly_data.reset_index()
+                yearly_data = yearly_data[yearly_data['fy_year'].notna()]
+                
+                fig_trend = px.line(
+                    yearly_data,
+                    x='fy_year',
+                    y=['Giá TB', 'Giá Trung vị'],
+                    title="📈 Xu hướng giá theo năm",
+                    labels={'value': 'Giá (USD)', 'fy_year': 'Năm', 'variable': 'Loại giá'},
+                    markers=True
+                )
+                fig_trend.update_layout(legend=dict(orientation="h", yanchor="bottom", y=1.02))
+                st.plotly_chart(fig_trend, use_container_width=True)
+        
+        with chart_col6:
+            # Regional Group analysis
+            if 'customer_regional_group' in df_clean.columns:
+                region_data = df_clean[df_clean['customer_regional_group'].notna()]
+                if len(region_data) > 0:
+                    region_prices = region_data.groupby('customer_regional_group').agg({
+                        'sales_price': ['mean', 'count'],
+                        'price_m3': 'mean'
+                    }).round(2)
+                    region_prices.columns = ['Giá TB', 'Số đơn hàng', 'Giá/m³ TB']
+                    region_prices = region_prices.sort_values('Giá TB', ascending=True).reset_index()
+                    
+                    fig_region = px.bar(
+                        region_prices,
+                        x='customer_regional_group',
+                        y='Giá TB',
+                        color='Giá/m³ TB',
+                        title="🌍 Giá trung bình theo Khu vực khách hàng",
+                        labels={'customer_regional_group': 'Nhóm Khu vực', 'Giá TB': 'Giá TB (USD)'},
+                        text='Số đơn hàng',
+                        color_continuous_scale='Blues'
+                    )
+                    fig_region.update_traces(texttemplate='n=%{text}', textposition='outside')
+                    st.plotly_chart(fig_region, use_container_width=True)
+        
+        # Correlation heatmap for numeric columns
+        st.markdown("#### 🔗 Tương quan giữa các yếu tố")
+        numeric_cols = ['length_cm', 'width_cm', 'height_cm', 'volume_m3', 'area_m2', 'sales_price', 'price_m3']
+        available_numeric = [col for col in numeric_cols if col in df_clean.columns]
+        if len(available_numeric) >= 3:
+            corr_matrix = df_clean[available_numeric].corr().round(2)
+            fig_corr = px.imshow(
+                corr_matrix,
+                text_auto=True,
+                title="Ma trận tương quan (Correlation Matrix)",
+                color_continuous_scale='RdBu_r',
+                aspect='auto'
+            )
+            st.plotly_chart(fig_corr, use_container_width=True)
     
     # Tab 3: Similar Products
     with tab3:
@@ -1519,11 +1706,12 @@ def main():
             search_family = st.selectbox("Loại sản phẩm", [''] + PRODUCT_FAMILIES, key='search_family')
             search_stone = st.selectbox("Màu đá", [''] + STONE_COLOR_TYPES, key='search_stone')
             
-            # Processing code dropdown
+            # Processing code dropdown with Vietnamese
+            search_processing_lookup = {code: (eng, vn) for code, eng, vn in PROCESSING_CODES_SEARCH}
             search_processing = st.selectbox(
-                "Main Processing",
-                options=[code for code, name in PROCESSING_CODES_SEARCH],
-                format_func=lambda x: f"{x} - {dict(PROCESSING_CODES_SEARCH).get(x, 'All')}" if x else "All",
+                "Gia công chính (Main Processing)",
+                options=[code for code, eng, vn in PROCESSING_CODES_SEARCH],
+                format_func=lambda x: f"{x} - {search_processing_lookup.get(x, ('All', 'Tất cả'))[0]} ({search_processing_lookup.get(x, ('All', 'Tất cả'))[1]})" if x else "All (Tất cả)",
                 key='search_processing'
             )
             
@@ -1583,9 +1771,10 @@ def main():
                 
                 exact_matches = df_clean[exact_mask]
                 
-                # Include processing columns and regional group in display
-                display_cols = ['contract_product_name', 'family', 'stone_color_type', 
-                                'sku', 'processing_code', 'processing_name',
+                # Include application and processing columns in display
+                display_cols = ['contract_product_name', 'stone_color_type', 
+                                'sku', 'application_code', 'application',
+                                'processing_code', 'processing_name',
                                 'customer_regional_group',
                                 'length_cm', 'width_cm', 'height_cm', 'charge_unit', 'sales_price', 'price_m3', 'segment']
                 available_cols = [col for col in display_cols if col in df_clean.columns]
@@ -1593,6 +1782,8 @@ def main():
                 # Column config for English headers
                 col_config = {
                     'sku': st.column_config.TextColumn('SKU'),
+                    'application_code': st.column_config.TextColumn('App Code'),
+                    'application': st.column_config.TextColumn('Application'),
                     'processing_code': st.column_config.TextColumn('Main Processing Code'),
                     'processing_name': st.column_config.TextColumn('Main Processing'),
                     'customer_regional_group': st.column_config.TextColumn('Regional Group'),
@@ -1824,9 +2015,12 @@ Tấn = m³ × TLR × HS
             'customer_regional_group', # Contract__r.Account__r.Nhom_Khu_vuc_KH__c
             'stone_color_type',        # Product__r.STONE_Color_Type__c
             'sku',                     # Product__r.StockKeepingUnit (SKU)
+            'application_code',        # Application code (from SKU positions 3-5)
+            'application',             # Application name (English)
+            'application_vn',          # Application name (Vietnamese)
             'processing_code',         # Main processing code (from SKU)
             'processing_name',         # Main processing name (English)
-            'family',                  # Product__r.Family
+            'family',                  # Product__r.Family (legacy)
             'segment',                 # Segment__c
             'created_date',            # Created_Date__c
             'fy_year',                 # Fiscal Year (calculated)
@@ -1845,6 +2039,8 @@ Tấn = m³ × TLR × HS
             'charge_unit',             # Charge_Unit__c
             'total_price_usd',         # Total_Price_USD__c
             'price_m3',                # Calculated price per m3
+            'volume_m3',               # Calculated volume
+            'area_m2',                 # Calculated area
         ]
         
         # Filter to only columns that exist in the dataframe
@@ -1857,6 +2053,9 @@ Tấn = m³ × TLR × HS
         # Column configuration for English headers on specific columns
         column_config = {
             'sku': st.column_config.TextColumn('SKU', help='Product Stock Keeping Unit'),
+            'application_code': st.column_config.TextColumn('App Code', help='Application code from SKU'),
+            'application': st.column_config.TextColumn('Application', help='Application name (English)'),
+            'application_vn': st.column_config.TextColumn('Application (VN)', help='Application name (Vietnamese)'),
             'processing_code': st.column_config.TextColumn('Main Processing Code', help='Ký hiệu gia công chính'),
             'processing_name': st.column_config.TextColumn('Main Processing', help='Nhóm mã gia công chính'),
             'customer_regional_group': st.column_config.TextColumn('Regional Group', help='Nhóm Khu vực KH'),

@@ -1,203 +1,177 @@
-# 💎 Stone Price Predictor
+# Stone Price Predictor
 
-**English** | [Tiếng Việt](#-tiếng-việt)
+A sophisticated Streamlit-based application for predicting and analyzing natural stone product pricing, leveraging historical Salesforce contract data and intelligent similarity matching algorithms.
 
-A web application for estimating natural stone product prices using **similarity-based search** with Salesforce data.
+## Overview
 
-## 🌟 Features
+Stone Price Predictor helps sales teams and pricing analysts estimate pricing for stone products based on historical contract data. The application connects directly to Salesforce to fetch contract product records and provides intelligent price predictions using multi-criteria similarity matching.
 
-### 1. Price Estimation (Tab 1)
-- Enter product info (stone type, dimensions, color, charge unit)
-- **Similarity search** with adjustable priority levels
-- Customer-type pricing (A-F) with decision authority ranges
-- Display TLR, HS, and estimated weight
-- Collapsible sections: Pricing rules, Customer classification, Formulas, Search criteria
+## Features
 
-### 2. Data Analysis (Tab 2)
-- Filter products with valid prices (> 0, not null)
-- Distribution charts by segment
-- Average price comparison by product family
-- Price by stone color (Box plot)
-- Scatter plot: Price vs Volume
+### 🔮 Price Prediction (Tab 1)
+- **Multi-criteria matching** with configurable priority levels for stone color, processing type, dimensions, and regional group
+- **Application-based filtering** with multi-select support (filter by product applications like Cubes, Tiles, Palisades, etc.)
+- **Automatic escalation** through priority levels when exact matches aren't found
+- **Customer type adjustments** with segment-aware pricing (A, B, C, D customer classifications)
+- **Confidence indicators** based on match quality and sample size
 
-### 3. Similar Products Search (Tab 3)
-- Find products matching criteria with filters
-- "Show related products" checkbox with quantity slider
-- Price statistics (min, max, average, median)
+### 📊 Data Analysis (Tab 2)
+- **Distribution charts** by segment, family, and stone color
+- **Price trends** over fiscal years
+- **Application & Processing analysis** with average prices
+- **Regional group comparison**
+- **Correlation matrix** for dimensional and pricing factors
 
-### 4. Reference Tables (Tab 4)
-- **TLR table** (Specific Weight) by stone type
-- **HS table** (Coating Factor) by product dimensions
-- **Calculation formulas** for m³, m², Tons, price conversion
-- **Container weight standards** by market
+### 🔍 Similar Product Search (Tab 3)
+- Exact and fuzzy matching by dimensions
+- Filter by family, stone color, processing, and regional group
+- Detailed product comparison with pricing statistics
 
-### 5. Detailed Data (Tab 5)
-- Full data table from Salesforce
-- Filters by Family, Segment, Region, Price range
+### 📐 Lookup Tables (Tab 4)
+- TLR (Tile Loss Rate) reference
+- HS Factor calculations
+- Price conversion formulas
 
-## 🎯 Search Priority Criteria
+### 📋 Detailed Data View (Tab 5)
+- Full data exploration with filtering
+- Export to CSV functionality
 
-| Criteria | Priority 1 | Priority 2 | Priority 3 |
-|----------|-----------|-----------|-----------|
-| **Stone Type** | Exact color | Same family | All types |
-| **Processing** | Exact match | All types | - |
-| **Height (cm)** | ±0 | ±1 | ±2 |
-| **Width (cm)** | ±0 | ±5 | ±10 |
-| **Length (cm)** | ±0 | ±10 | ±20 |
-| **Region** | Exact region | All regions | - |
+## Architecture
 
-## 📊 Price Segments
+```
+stone_price_predictor/
+├── app.py                    # Main Streamlit application
+├── salesforce_loader.py      # Salesforce API integration & data extraction
+├── contract_query.txt        # SOQL query template
+├── requirements.txt          # Python dependencies
+├── .env                      # Environment configuration (not in repo)
+└── docs/                     # Documentation and reference files
+    ├── Application Mapping.pdf
+    ├── Code Rule AND Product list.pdf
+    └── stone_price_data.csv
+```
 
-| Segment | Price (USD/m³) | Products |
-|---------|----------------|----------|
-| 🟣 Super Premium | ≥ 1,500 | Thin paving 1-1.5cm, wall covering, decorative |
-| 🔴 Premium | ≥ 800 | Interior/exterior tiles 2-5cm, slabs, stairs |
-| 🟡 Common | ≥ 400 | Palisades, flamed cubes, tumbled |
-| 🟢 Economy | < 400 | Hand-split cubes, natural split pavers |
+## Installation
 
-## 👥 Customer Classification (A-F)
+### Prerequisites
+- Python 3.9+
+- Salesforce credentials with API access
 
-| Type | Description | Price Adjustment |
-|------|-------------|------------------|
-| A | Special loyal (>10 years, 50-150 containers) | -1.5% to -3% |
-| B | Large professional (3-10 years, 20-50 containers) | -2% to -4% |
-| C | Standard (1-5 years, 5-20 containers) | Base price |
-| D | New, small (1 year, 1-10 containers) | +3% to +6% |
-| E | New/premium products | ×1.08-1.15 |
-| F | Project customers | ×1.08-1.15 |
+### Setup
 
-## ⚖️ TLR & HS Reference
-
-| Stone Type | TLR (tons/m³) |
-|------------|---------------|
-| Absolute Basalt (Dak Nong) | 2.95 |
-| Black Basalt (sawn) | 2.70 |
-| Black Basalt (hand-split) | 2.65 |
-| Dark Grey Granite | 2.90 |
-| Granite / Bluestone | 2.70 |
-
-| Product | HS Factor |
-|---------|-----------|
-| Cube 5×5×5 | 1.00 |
-| Cube 8×8×8 | 0.95 |
-| Cube 10×10×8 | 0.875 |
-| Flamed tile 6cm | 0.97 |
-| Sawn palisade | 1.05 |
-
-## 🚀 Installation
-
+1. Clone the repository:
 ```bash
-# Install dependencies
+git clone <repository-url>
+cd stone_price_predictor
+```
+
+2. Create and activate virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# or
+venv\Scripts\activate     # Windows
+```
+
+3. Install dependencies:
+```bash
 pip install -r requirements.txt
+```
 
-# Configure .env file
-SALESFORCE_USERNAME=your_username@company.com
+4. Configure environment variables:
+```bash
+cp .env.example .env
+# Edit .env with your Salesforce credentials
+```
+
+Required environment variables:
+```
+SALESFORCE_USERNAME=your_username
 SALESFORCE_PASSWORD=your_password
-SALESFORCE_SECURITY_TOKEN=your_security_token
+SALESFORCE_SECURITY_TOKEN=your_token
+SALESFORCE_DOMAIN=login  # or 'test' for sandbox
+```
 
-# Run application
+## Usage
+
+### Running Locally
+```bash
 streamlit run app.py
 ```
 
-## � Calculation Formulas
+The application will open at `http://localhost:8501`
 
-```
-m³ = (Length × Width × Height) / 1,000,000 × Quantity
-m² = (Length × Width) / 10,000 × Quantity
-Tons = m³ × TLR × HS
+### Basic Workflow
+1. Click **"🔄 Tải / Làm mới dữ liệu từ Salesforce"** to load data
+2. Configure search criteria (Application, Stone Color, Processing, Dimensions)
+3. Set priority levels for each matching criterion
+4. Click **"🔍 Dự đoán giá"** to get price estimates
 
-Price/m² = Price/m³ × Height(m)
-Price/m³ = Price/Ton × TLR × HS
-```
+## Data Model
 
----
+### SKU Structure
+The application extracts key information from product SKUs:
+- **Positions 1-2**: Brand/Model prefix
+- **Positions 3-5**: Application code (e.g., `5.1` for Block, `4.1` for Stair)
+- **Positions 6-8**: Processing code (e.g., `DOT` for Flamed, `HON` for Honed)
 
-# 💎 Tiếng Việt
+### Application Codes
+| Code | English | Vietnamese |
+|------|---------|------------|
+| 1.1 | Cubes / Cobbles | Cubic (Đá vuông) |
+| 1.3 | Paving stone / Paving slab | Đá lát ngoài trời |
+| 3.1 | Palisades | Đá cây |
+| 4.1 | Stair / Step (Block) | Đá bậc thang nguyên khối |
+| 4.2 | Step (Cladding) | Đá bao/bọc bậc cầu thang |
+| 5.1 | Block | Khối |
+| ... | ... | ... |
 
-Ứng dụng web ước tính giá sản phẩm đá tự nhiên sử dụng **tìm kiếm tương tự** và dữ liệu từ Salesforce.
+### Processing Codes
+| Code | English | Vietnamese |
+|------|---------|------------|
+| DOT | Flamed | Đốt |
+| HON | Honed | Hon/Mài Mịn |
+| CTA | Split Handmade | Chẻ Tay |
+| DOX | Flamed Water | Đốt Xịt Nước |
+| ... | ... | ... |
 
-## 🌟 Tính năng
+## Price Segments
 
-### 1. Ước tính giá (Tab 1)
-- Nhập thông tin sản phẩm (loại đá, kích thước, màu sắc, đơn vị tính giá)
-- **Tìm kiếm tương tự** với mức độ ưu tiên có thể điều chỉnh
-- Tính giá theo loại khách hàng (A-F) với quyền tự quyết
-- Hiển thị TLR, HS, và trọng lượng ước tính
+| Segment | Price Range (USD/m³) |
+|---------|---------------------|
+| Economy | < $400 |
+| Common | $400 - $800 |
+| Premium | $800 - $1,500 |
+| Super Premium | > $1,500 |
 
-### 2. Phân tích dữ liệu (Tab 2)
-- Biểu đồ phân bố theo phân khúc
-- So sánh giá trung bình theo loại sản phẩm
+## Priority Matching System
 
-### 3. Tìm sản phẩm tương tự (Tab 3)
-- Tìm sản phẩm khớp tiêu chí với các bộ lọc
+The application uses a hierarchical priority system for finding matching products:
 
-### 4. Bảng tra cứu (Tab 4)
-- Bảng TLR (Trọng Lượng Riêng)
-- Bảng HS (Hệ Số Ốp Đáy)
-- Công thức tính toán
-- Quy chuẩn container
+| Criterion | Priority 1 | Priority 2 | Priority 3 |
+|-----------|-----------|-----------|-----------|
+| Stone Color | Exact match | Same family | All types |
+| Processing | Exact code | All types | - |
+| Dimensions | Exact ±1cm | ±20% tolerance | ±100% tolerance |
+| Regional Group | Exact match | All regions | - |
 
-### 5. Dữ liệu chi tiết (Tab 5)
-- Bảng dữ liệu đầy đủ từ Salesforce
+## API Integration
 
-## 🎯 Tiêu chí tìm kiếm
+The application connects to Salesforce using the `simple_salesforce` library and queries the `Contract_Product__c` object with related records from:
+- `Contract__c`
+- `Account`
+- `Product2`
 
-| Tiêu chí | Ưu tiên 1 | Ưu tiên 2 | Ưu tiên 3 |
-|----------|-----------|-----------|-----------|
-| **Loại đá** | Đúng màu đá | Cùng chủng loại | Tất cả loại đá |
-| **Gia công** | Đúng loại | Tất cả | - |
-| **Cao (cm)** | ±0 | ±1 | ±2 |
-| **Rộng (cm)** | ±0 | ±5 | ±10 |
-| **Dài (cm)** | ±0 | ±10 | ±20 |
-| **Khu vực** | Đúng khu vực | Tất cả | - |
+## Contributing
 
-## 📊 Phân khúc giá
+1. Create a feature branch
+2. Make changes with appropriate tests
+3. Submit a pull request
 
-| Phân khúc | Giá (USD/m³) | Sản phẩm |
-|-----------|--------------|----------|
-| 🟣 Super Premium | ≥ 1,500 | Đá mỏng 1-1.5cm, nắp tường, mỹ nghệ |
-| 🔴 Premium | ≥ 800 | Đá lát 2-5cm, slab, bậc thang |
-| 🟡 Common | ≥ 400 | Đá cây, cubic đốt, quay mẻ |
-| 🟢 Economy | < 400 | Đá gõ tay, cubic chẻ tay |
+## License
 
-## 👥 Phân loại khách hàng
+Proprietary - Internal use only.
 
-| Loại | Mô tả | Điều chỉnh giá |
-|------|-------|----------------|
-| A | Thân thiết đặc biệt (>10 năm) | -1.5% đến -3% |
-| B | Lớn, chuyên nghiệp (3-10 năm) | -2% đến -4% |
-| C | Phổ thông (1-5 năm) | Giá chuẩn |
-| D | Mới, nhỏ (1 năm) | +3% đến +6% |
-| E | Sản phẩm mới | ×1.08-1.15 |
-| F | Dự án | ×1.08-1.15 |
+## Support
 
-## ⚖️ TLR & HS
-
-| Loại đá | TLR (tấn/m³) |
-|---------|--------------|
-| Đá đen Đak Nông | 2.95 |
-| Đá Phước Hòa (cưa) | 2.70 |
-| Đá Phước Hòa (chẻ tay) | 2.65 |
-| Dark Grey Granite | 2.90 |
-| Granite / Bluestone | 2.70 |
-
-## 📐 Công thức
-
-```
-m³ = (Dài × Rộng × Cao) / 1.000.000 × Số viên
-Tấn = m³ × TLR × HS
-Giá/m² = Giá/m³ × Cao(m)
-```
-
-## 🚢 Quy chuẩn Container
-
-| Thị trường | Trọng lượng (tấn) |
-|------------|-------------------|
-| Mỹ | 20-21 |
-| Châu Âu | 27-28 |
-| Úc | 24-26 |
-| Nhật | 27.5-28 |
-
----
-
-Made with ❤️ for APlus Mineral Material Corporation
+For issues or feature requests, contact the development team.
