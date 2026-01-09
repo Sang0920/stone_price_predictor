@@ -198,7 +198,7 @@ PRODUCT_FAMILIES = [
 # Per "Copy of Code Rule AND Product list" and "Application Mapping" docs
 APPLICATION_CODES = [
     ('1.1', 'Cubes / Cobbles'),
-    ('1.3', 'Paving stone / Paving slab'),
+    ('1.3', 'Paving stone / Paving slab/Crazy Paving'),
     ('2.1', 'Wall stone / Wall brick'),
     ('2.2', 'Wall covering / Wall top'),
     ('2.3', 'Rockface Walling'),
@@ -970,10 +970,28 @@ class SimilarityPricePredictor:
         weights = np.power(2, -days_ago / self.recency_half_life_days)
         return weights
     
-    def estimate_price(self, matches: pd.DataFrame) -> Dict[str, Any]:
+    def estimate_price(self, matches: pd.DataFrame, use_recent_only: bool = True, recent_count: int = 10,
+                        query_length_cm: float = None, query_width_cm: float = None, query_height_cm: float = None,
+                        target_charge_unit: str = 'USD/M3', stone_color_type: str = None, processing_code: str = None) -> Dict[str, Any]:
         """
         Estimate price from matching products.
-        Uses recency-weighted average.
+        Uses recency-weighted average, optionally filtering to most recent products.
+        
+        IMPORTANT: Normalizes all prices to USD/M3 before averaging to account for 
+        different product sizes. Then converts back to target_charge_unit using 
+        query dimensions. This ensures that larger products are priced proportionally 
+        higher than smaller similar products.
+        
+        Args:
+            matches: DataFrame of matching products
+            use_recent_only: If True, filter to only the most recent products
+            recent_count: Number of most recent products to use (if use_recent_only=True)
+            query_length_cm: Length of the product being quoted (for unit conversion)
+            query_width_cm: Width of the product being quoted (for unit conversion)
+            query_height_cm: Height of the product being quoted (for unit conversion)
+            target_charge_unit: The unit to return the price in (USD/PC, USD/M2, USD/M3, USD/TON)
+            stone_color_type: Stone type for TLR calculation
+            processing_code: Processing code for TLR/HS calculation
         """
         if len(matches) == 0:
             return {
@@ -982,14 +1000,117 @@ class SimilarityPricePredictor:
                 'max_price': None,
                 'median_price': None,
                 'match_count': 0,
-                'confidence': 'none'
+                'total_matches': 0,
+                'confidence': 'none',
+                'years_used': '',
+                'price_m3': None
             }
         
-        prices = matches['sales_price']
+        total_matches = len(matches)
+        
+        # Filter to most recent products based on fy_year and created_date
+        if use_recent_only and len(matches) > recent_count:
+            # Sort by fy_year (desc) then created_date (desc)
+            sorted_matches = matches.copy()
+            if 'fy_year' in sorted_matches.columns:
+                # Convert fy_year to numeric for proper sorting
+                sorted_matches['_fy_year_numeric'] = pd.to_numeric(sorted_matches['fy_year'], errors='coerce')
+                sorted_matches = sorted_matches.sort_values(
+                    by=['_fy_year_numeric', 'created_date'], 
+                    ascending=[False, False],
+                    na_position='last'
+                )
+                sorted_matches = sorted_matches.drop(columns=['_fy_year_numeric'])
+            elif 'created_date' in sorted_matches.columns:
+                sorted_matches = sorted_matches.sort_values(
+                    by=['created_date'], 
+                    ascending=[False],
+                    na_position='last'
+                )
+            # Take only the top N most recent
+            matches = sorted_matches.head(recent_count)
+        
+        # Get years used for display
+        years_used = ''
+        if 'fy_year' in matches.columns:
+            unique_years = matches['fy_year'].dropna().unique()
+            unique_years = sorted([int(y) for y in unique_years if pd.notna(y)], reverse=True)
+            if len(unique_years) > 0:
+                years_used = ', '.join(str(y) for y in unique_years[:3])
+        
+        # Calculate weights
         weights = self.calculate_recency_weights(matches)
         
-        # Weighted average
-        weighted_price = np.average(prices, weights=weights)
+        # Normalize all prices to USD/M3 before averaging
+        # This ensures fair comparison across different product sizes
+        prices_m3 = []
+        for idx, row in matches.iterrows():
+            price = row['sales_price']
+            unit = row.get('charge_unit', 'USD/M3')
+            match_length = row.get('length_cm', 10)
+            match_width = row.get('width_cm', 10)
+            match_height = row.get('height_cm', 3)
+            match_stone = row.get('stone_color_type', stone_color_type or 'ABSOLUTE BASALT')
+            match_proc = row.get('processing_code', processing_code)
+            
+            # Get TLR and HS for this product
+            tlr = get_tlr(match_stone, match_proc)
+            hs = get_hs_factor((match_length, match_width, match_height), match_proc)
+            
+            # Convert to USD/M3
+            price_m3 = convert_price(
+                price, unit, 'USD/M3',
+                height_cm=match_height,
+                length_cm=match_length,
+                width_cm=match_width,
+                tlr=tlr,
+                hs=hs
+            )
+            prices_m3.append(price_m3)
+        
+        prices_m3 = pd.Series(prices_m3, index=matches.index)
+        
+        # Weighted average in USD/M3 (the normalized unit)
+        weighted_price_m3 = np.average(prices_m3, weights=weights)
+        
+        # Convert from USD/M3 to target unit using QUERY dimensions
+        # This is the key: we use the NEW product's dimensions, not the matched products'
+        if query_length_cm is not None and query_width_cm is not None and query_height_cm is not None:
+            query_tlr = get_tlr(stone_color_type or 'ABSOLUTE BASALT', processing_code)
+            query_hs = get_hs_factor((query_length_cm, query_width_cm, query_height_cm), processing_code)
+            
+            estimated_price = convert_price(
+                weighted_price_m3, 'USD/M3', target_charge_unit,
+                height_cm=query_height_cm,
+                length_cm=query_length_cm,
+                width_cm=query_width_cm,
+                tlr=query_tlr,
+                hs=query_hs
+            )
+            
+            # Also convert min/max/median to target unit
+            min_price = convert_price(
+                prices_m3.min(), 'USD/M3', target_charge_unit,
+                height_cm=query_height_cm, length_cm=query_length_cm, width_cm=query_width_cm,
+                tlr=query_tlr, hs=query_hs
+            )
+            max_price = convert_price(
+                prices_m3.max(), 'USD/M3', target_charge_unit,
+                height_cm=query_height_cm, length_cm=query_length_cm, width_cm=query_width_cm,
+                tlr=query_tlr, hs=query_hs
+            )
+            median_price = convert_price(
+                prices_m3.median(), 'USD/M3', target_charge_unit,
+                height_cm=query_height_cm, length_cm=query_length_cm, width_cm=query_width_cm,
+                tlr=query_tlr, hs=query_hs
+            )
+        else:
+            # Fallback: use original method (direct averaging) if no query dimensions
+            prices = matches['sales_price']
+            estimated_price = np.average(prices, weights=weights)
+            min_price = prices.min()
+            max_price = prices.max()
+            median_price = prices.median()
         
         # Confidence based on match count
         if len(matches) >= 10:
@@ -1002,12 +1123,15 @@ class SimilarityPricePredictor:
             confidence = 'very_low'
         
         return {
-            'estimated_price': round(weighted_price, 2),
-            'min_price': round(prices.min(), 2),
-            'max_price': round(prices.max(), 2),
-            'median_price': round(prices.median(), 2),
+            'estimated_price': round(estimated_price, 2),
+            'min_price': round(min_price, 2),
+            'max_price': round(max_price, 2),
+            'median_price': round(median_price, 2),
             'match_count': len(matches),
-            'confidence': confidence
+            'total_matches': total_matches,
+            'confidence': confidence,
+            'years_used': years_used,
+            'price_m3': round(weighted_price_m3, 2)
         }
     
     def predict_with_escalation(
@@ -1245,7 +1369,7 @@ def main():
 - Dark Grey Granite: 2.90
                 """)
             
-            with st.expander("🎯 Tiêu chí tìm kiếm"):
+            with st.expander("🎯 Tiêu chí tìm kiếm", expanded=True):
                 st.markdown("""
 | Tiêu chí | Ưu tiên 1 | Ưu tiên 2 | Ưu tiên 3 |
 |----------|-----------|-----------|-----------|
@@ -1264,7 +1388,7 @@ def main():
 | Mã | English | Tiếng Việt |
 |----|---------|------------|
 | 1.1 | Cubes / Cobbles | Cubic (Đá vuông) |
-| 1.3 | Paving stone / Paving slab | Đá lát ngoài trời |
+| 1.3 | Paving stone / Paving slab / Crazy paving | Đá lát ngoài trời |
 | 2.1 | Wall stone / Wall brick | Đá xây tường rào |
 | 2.2 | Wall covering / Wall top | Đá ốp tường rào |
 | 2.3 | Rockface Walling | Đá mặt lỗi ốp tường |
@@ -1333,6 +1457,23 @@ def main():
                     index=1  # Default: Ưu tiên 2 (Tất cả khu vực)
                 )
             
+            st.divider()
+            st.markdown("#### 📅 Cài đặt tính toán giá")
+            use_recent_only = st.checkbox(
+                "Chỉ sử dụng dữ liệu gần nhất",
+                value=True,
+                help="Chỉ sử dụng N sản phẩm gần nhất (theo năm tài chính) để ước tính giá chính xác hơn"
+            )
+            recent_count = st.slider(
+                "Số lượng sản phẩm tham khảo",
+                min_value=5,
+                max_value=30,
+                value=10,
+                step=5,
+                help="Số lượng sản phẩm gần nhất sử dụng để ước tính giá",
+                disabled=not use_recent_only
+            )
+            
             predict_btn = st.button("🔍 Tìm kiếm & Ước tính giá", type="primary", use_container_width=True)
         
         with col2:
@@ -1355,7 +1496,17 @@ def main():
                     region_priority=region_priority,
                 )
                 
-                estimation = predictor.estimate_price(matches)
+                estimation = predictor.estimate_price(
+                    matches, 
+                    use_recent_only=use_recent_only, 
+                    recent_count=recent_count,
+                    query_length_cm=length,
+                    query_width_cm=width,
+                    query_height_cm=height,
+                    target_charge_unit=charge_unit,
+                    stone_color_type=stone_color,
+                    processing_code=processing_code
+                )
                 
                 st.markdown("#### 📊 Kết quả ước tính")
                 
@@ -1388,7 +1539,14 @@ def main():
                     # Price range
                     st.markdown(f"Khoảng giá thực tế: **\\${estimation['min_price']:,.2f}** – **\\${estimation['max_price']:,.2f}**")
                     st.markdown(f"**Giá trung vị:** ${estimation['median_price']:,.2f}")
-                    st.markdown(f"**Số mẫu khớp:** {estimation['match_count']}")
+                    
+                    # Show match count info with years if using recent only
+                    if use_recent_only and estimation.get('total_matches', 0) > estimation['match_count']:
+                        st.markdown(f"**Số mẫu khớp:** {estimation['match_count']} / {estimation['total_matches']} (sử dụng {estimation['match_count']} mẫu gần nhất)")
+                        if estimation.get('years_used'):
+                            st.markdown(f"**Năm tham khảo:** {estimation['years_used']}")
+                    else:
+                        st.markdown(f"**Số mẫu khớp:** {estimation['match_count']}")
                     
                     st.divider()
                     
