@@ -244,7 +244,7 @@ STONE_FAMILY_MAP = {
 DIMENSION_PRIORITY_LEVELS = {
     'Ưu tiên 1 - Đúng kích thước': {'height': 0, 'width': 0, 'length': 0},
     'Ưu tiên 2 - Sai lệch nhỏ': {'height': 1, 'width': 5, 'length': 10},
-    'Ưu tiên 3 - Sai lệch lớn': {'height': 2, 'width': 10, 'length': 20},
+    'Ưu tiên 3 - Sai lệch lớn': {'height': 5, 'width': 15, 'length': 30},
 }
 
 CHARGE_UNITS = ['USD/PC', 'USD/M2', 'USD/TON', 'USD/ML', 'USD/M3']
@@ -1375,9 +1375,9 @@ def main():
 |----------|-----------|-----------|-----------|
 | **Loại đá** | Đúng màu đá | Cùng chủng loại | Tất cả loại đá |
 | **Gia công** | Đúng loại gia công | Tất cả gia công | - |
-| **Cao (cm)** | ±0 | ±1 | ±2 |
-| **Rộng (cm)** | ±0 | ±5 | ±10 |
-| **Dài (cm)** | ±0 | ±10 | ±20 |
+| **Cao (cm)** | ±0 | ±1 | ±5 |
+| **Rộng (cm)** | ±0 | ±5 | ±15 |
+| **Dài (cm)** | ±0 | ±10 | ±30 |
 | **Khu vực** | Đúng khu vực | Tất cả khu vực | - |
                 """)
             
@@ -1430,7 +1430,7 @@ def main():
                         'Ưu tiên 2': '2 - Cùng chủng loại',
                         'Ưu tiên 3': '3 - Tất cả loại đá',
                     }[x],
-                    index=2  # Default: Ưu tiên 3 (Tất cả loại đá)
+                    index=1  # Default: Ưu tiên 2 (Cùng chủng loại)
                 )
                 processing_priority = st.selectbox(
                     "Gia công",
@@ -1467,8 +1467,8 @@ def main():
             recent_count = st.slider(
                 "Số lượng sản phẩm tham khảo",
                 min_value=5,
-                max_value=30,
-                value=10,
+                max_value=35,
+                value=15,
                 step=5,
                 help="Số lượng sản phẩm gần nhất sử dụng để ước tính giá",
                 disabled=not use_recent_only
