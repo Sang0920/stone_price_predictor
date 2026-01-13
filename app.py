@@ -198,7 +198,7 @@ PRODUCT_FAMILIES = [
 # Per "Copy of Code Rule AND Product list" and "Application Mapping" docs
 APPLICATION_CODES = [
     ('1.1', 'Cubes / Cobbles'),
-    ('1.3', 'Paving stone / Paving slab/Crazy Paving'),
+    ('1.3', 'Paving stone / Paving slab/ Crazy Paving'),
     ('2.1', 'Wall stone / Wall brick'),
     ('2.2', 'Wall covering / Wall top'),
     ('2.3', 'Rockface Walling'),
@@ -953,6 +953,132 @@ class SimilarityPricePredictor:
         
         return df_matches
     
+    def get_match_diagnostics(
+        self,
+        stone_color_type: str,
+        processing_code: str,
+        length_cm: float,
+        width_cm: float,
+        height_cm: float,
+        application_codes: list,
+        customer_regional_group: str,
+        charge_unit: str,
+        stone_priority: str = 'Ưu tiên 1',
+        processing_priority: str = 'Ưu tiên 1',
+        dimension_priority: str = 'Ưu tiên 1 - Đúng kích thước',
+        region_priority: str = 'Ưu tiên 1',
+    ) -> Dict[str, Any]:
+        """
+        Analyze why no matches were found and return diagnostic information.
+        Returns closest available dimensions and filter breakdown.
+        """
+        if self.data is None or len(self.data) == 0:
+            return {'reason': 'Không có dữ liệu', 'suggestions': []}
+        
+        df = self.data.copy()
+        diagnostics = {
+            'reason': '',
+            'suggestions': [],
+            'closest_height': None,
+            'closest_width': None,
+            'closest_length': None,
+            'filter_counts': {}
+        }
+        
+        # Track filter stages
+        mask = pd.Series([True] * len(df), index=df.index)
+        diagnostics['filter_counts']['total'] = len(df)
+        
+        # 1. Stone type
+        query_family = STONE_FAMILY_MAP.get(stone_color_type, 'OTHER')
+        if stone_priority == 'Ưu tiên 1':
+            stone_mask = df['stone_color_type'] == stone_color_type
+        elif stone_priority == 'Ưu tiên 2':
+            stone_mask = df['stone_family'] == query_family
+        else:
+            stone_mask = pd.Series([True] * len(df), index=df.index)
+        mask &= stone_mask
+        diagnostics['filter_counts']['after_stone'] = mask.sum()
+        
+        # 2. Processing
+        if processing_priority == 'Ưu tiên 1' and processing_code:
+            proc_mask = df['processing_code'] == processing_code
+            mask &= proc_mask
+        diagnostics['filter_counts']['after_processing'] = mask.sum()
+        
+        # 3. Application
+        if application_codes and len(application_codes) > 0 and 'application_code' in df.columns:
+            mask &= df['application_code'].isin(application_codes)
+        diagnostics['filter_counts']['after_application'] = mask.sum()
+        
+        # 4. Charge unit
+        if charge_unit:
+            mask &= df['charge_unit'] == charge_unit
+        diagnostics['filter_counts']['after_charge_unit'] = mask.sum()
+        
+        # 5. Region
+        if 'customer_regional_group' in df.columns and region_priority == 'Ưu tiên 1' and customer_regional_group:
+            mask &= df['customer_regional_group'] == customer_regional_group
+        diagnostics['filter_counts']['after_region'] = mask.sum()
+        
+        df_filtered = df[mask].copy()
+        
+        if len(df_filtered) == 0:
+            # Find which filter caused the problem
+            if diagnostics['filter_counts']['after_stone'] == 0:
+                diagnostics['reason'] = f"Không tìm thấy sản phẩm loại đá '{stone_color_type}'"
+                diagnostics['suggestions'].append("Thử chọn Ưu tiên 2 hoặc 3 cho Loại đá")
+            elif diagnostics['filter_counts']['after_processing'] == 0:
+                diagnostics['reason'] = f"Không tìm thấy gia công '{processing_code}' cho loại đá này"
+                diagnostics['suggestions'].append("Thử chọn Ưu tiên 2 cho Gia công")
+            elif diagnostics['filter_counts']['after_application'] == 0:
+                app_names = ', '.join(application_codes) if application_codes else ''
+                diagnostics['reason'] = f"Không tìm thấy ứng dụng '{app_names}' cho các tiêu chí đã chọn"
+                diagnostics['suggestions'].append("Thử bỏ chọn ứng dụng cụ thể")
+            elif diagnostics['filter_counts']['after_charge_unit'] == 0:
+                diagnostics['reason'] = f"Không tìm thấy đơn vị tính '{charge_unit}'"
+                diagnostics['suggestions'].append("Thử đổi đơn vị tính giá")
+            else:
+                diagnostics['reason'] = "Không tìm thấy sản phẩm với các tiêu chí đã chọn"
+            return diagnostics
+        
+        # 6. Check dimensions
+        tolerances = DIMENSION_PRIORITY_LEVELS.get(dimension_priority, {'height': 0, 'width': 0, 'length': 0})
+        
+        # Find closest dimensions in filtered data
+        closest_height = df_filtered.loc[(df_filtered['height_cm'] - height_cm).abs().idxmin(), 'height_cm']
+        closest_width = df_filtered.loc[(df_filtered['width_cm'] - width_cm).abs().idxmin(), 'width_cm']
+        closest_length = df_filtered.loc[(df_filtered['length_cm'] - length_cm).abs().idxmin(), 'length_cm']
+        
+        diagnostics['closest_height'] = closest_height
+        diagnostics['closest_width'] = closest_width
+        diagnostics['closest_length'] = closest_length
+        
+        height_diff = abs(closest_height - height_cm)
+        width_diff = abs(closest_width - width_cm)
+        length_diff = abs(closest_length - length_cm)
+        
+        # Check which dimension is blocking
+        dim_issues = []
+        if height_diff > tolerances['height']:
+            dim_issues.append(f"Cao {height_cm}cm (gần nhất: {closest_height}cm, sai lệch: {height_diff:.0f}cm > ±{tolerances['height']}cm)")
+        if width_diff > tolerances['width']:
+            dim_issues.append(f"Rộng {width_cm}cm (gần nhất: {closest_width}cm, sai lệch: {width_diff:.0f}cm > ±{tolerances['width']}cm)")
+        if length_diff > tolerances['length']:
+            dim_issues.append(f"Dài {length_cm}cm (gần nhất: {closest_length}cm, sai lệch: {length_diff:.0f}cm > ±{tolerances['length']}cm)")
+        
+        if dim_issues:
+            diagnostics['reason'] = "Không tìm thấy kích thước phù hợp:\n• " + "\n• ".join(dim_issues)
+            diagnostics['suggestions'].append("Thử chọn Ưu tiên 3 cho Kích thước (sai lệch lớn)")
+        
+        diagnostics['filter_counts']['after_dimensions'] = len(self.find_matching_products(
+            stone_color_type, processing_code, length_cm, width_cm, height_cm,
+            application_codes, customer_regional_group, charge_unit,
+            stone_priority, processing_priority, dimension_priority, region_priority
+        ))
+        
+        return diagnostics
+    
     def calculate_recency_weights(self, df: pd.DataFrame) -> pd.Series:
         """Calculate recency weights for price averaging."""
         if 'created_date' not in df.columns or len(df) == 0:
@@ -1122,6 +1248,30 @@ class SimilarityPricePredictor:
         else:
             confidence = 'very_low'
         
+        # Calculate price trend based on fy_year
+        price_trend = None
+        trend_pct = None
+        if 'fy_year' in matches.columns and len(matches) >= 3:
+            # Group by year and calculate average price_m3
+            yearly_data = pd.DataFrame({
+                'fy_year': matches['fy_year'],
+                'price_m3': prices_m3
+            })
+            yearly_avg = yearly_data.groupby('fy_year')['price_m3'].mean()
+            if len(yearly_avg) >= 2:
+                sorted_years = sorted(yearly_avg.index, reverse=True)
+                if len(sorted_years) >= 2:
+                    this_year_price = yearly_avg[sorted_years[0]]
+                    last_year_price = yearly_avg[sorted_years[1]]
+                    if last_year_price > 0:
+                        trend_pct = ((this_year_price - last_year_price) / last_year_price) * 100
+                        if trend_pct > 0:
+                            price_trend = 'up'
+                        elif trend_pct < 0:
+                            price_trend = 'down'
+                        else:
+                            price_trend = 'stable'
+        
         return {
             'estimated_price': round(estimated_price, 2),
             'min_price': round(min_price, 2),
@@ -1131,7 +1281,9 @@ class SimilarityPricePredictor:
             'total_matches': total_matches,
             'confidence': confidence,
             'years_used': years_used,
-            'price_m3': round(weighted_price_m3, 2)
+            'price_m3': round(weighted_price_m3, 2),
+            'price_trend': price_trend,
+            'trend_pct': round(trend_pct, 1) if trend_pct is not None else None
         }
     
     def predict_with_escalation(
@@ -1430,7 +1582,7 @@ def main():
                         'Ưu tiên 2': '2 - Cùng chủng loại',
                         'Ưu tiên 3': '3 - Tất cả loại đá',
                     }[x],
-                    index=1  # Default: Ưu tiên 2 (Cùng chủng loại)
+                    index=0  # Default: Ưu tiên 1 (Đúng màu đá)
                 )
                 processing_priority = st.selectbox(
                     "Gia công",
@@ -1548,6 +1700,16 @@ def main():
                     else:
                         st.markdown(f"**Số mẫu khớp:** {estimation['match_count']}")
                     
+                    # Show price trend if available
+                    if estimation.get('price_trend') and estimation.get('trend_pct') is not None:
+                        trend_pct = estimation['trend_pct']
+                        if estimation['price_trend'] == 'up':
+                            st.markdown(f"📈 **Xu hướng giá:** Tăng **+{abs(trend_pct):.1f}%** so với năm trước")
+                        elif estimation['price_trend'] == 'down':
+                            st.markdown(f"📉 **Xu hướng giá:** Giảm **-{abs(trend_pct):.1f}%** so với năm trước")
+                        else:
+                            st.markdown(f"➡️ **Xu hướng giá:** Ổn định")
+                    
                     st.divider()
                     
                     # Calculate segment for pricing (use first selected application or empty for classify_segment)
@@ -1571,7 +1733,29 @@ def main():
                     st.markdown(f"- Quyền tự quyết: {price_info['authority_range']}")
                     
                 else:
-                    st.warning("⚠️ Không tìm thấy sản phẩm phù hợp. Thử mở rộng tiêu chí tìm kiếm (Ưu tiên 2 hoặc 3).")
+                    # Get detailed diagnostics for why no matches found
+                    diagnostics = predictor.get_match_diagnostics(
+                        stone_color_type=stone_color,
+                        processing_code=processing_code,
+                        length_cm=length,
+                        width_cm=width,
+                        height_cm=height,
+                        application_codes=selected_applications,
+                        customer_regional_group=customer_regional_group,
+                        charge_unit=charge_unit,
+                        stone_priority=stone_priority,
+                        processing_priority=processing_priority,
+                        dimension_priority=dimension_priority,
+                        region_priority=region_priority,
+                    )
+                    
+                    st.warning(f"⚠️ Không tìm thấy sản phẩm phù hợp")
+                    
+                    if diagnostics.get('reason'):
+                        st.error(f"**Lý do:** {diagnostics['reason']}")
+                    
+                    if diagnostics.get('suggestions'):
+                        st.info("**💡 Gợi ý:**\n" + "\n".join([f"• {s}" for s in diagnostics['suggestions']]))
                 
                 st.divider()
                 
