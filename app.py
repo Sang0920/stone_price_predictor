@@ -1622,7 +1622,7 @@ def main():
                 max_value=35,
                 value=10,
                 step=5,
-                help="Số lượng sản phẩm gần nhất sử dụng để ước tính giá",
+                help="Số lượng sản phẩm gần nhất sử dụng để ước tính giá. Nên đặt từ 5 đến 10 sản phẩm tham khảo!",
                 disabled=not use_recent_only
             )
             
