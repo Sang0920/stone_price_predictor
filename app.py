@@ -1459,9 +1459,9 @@ def main():
             
             col_dim1, col_dim2, col_dim3 = st.columns(3)
             with col_dim1:
-                length = st.number_input("Dài (cm)", min_value=1, max_value=300, value=30)
+                length = st.number_input("Dài (cm)", min_value=0.1, max_value=300.0, value=30.0, step=0.5)
             with col_dim2:
-                width = st.number_input("Rộng (cm)", min_value=1, max_value=300, value=30)
+                width = st.number_input("Rộng (cm)", min_value=0.1, max_value=300.0, value=30.0, step=0.5)
             with col_dim3:
                 height = st.number_input("Dày (cm)", min_value=0.5, max_value=50.0, value=3.0, step=0.5)
             
@@ -1614,13 +1614,13 @@ def main():
             use_recent_only = st.checkbox(
                 "Chỉ sử dụng dữ liệu gần nhất",
                 value=True,
-                help="Chỉ sử dụng N sản phẩm gần nhất (theo năm tài chính) để ước tính giá chính xác hơn"
+                help="Chỉ sử dụng N sản phẩm gần nhất (theo năm tài chính) để ước tính giá chính xác hơn. Nên đặt từ 5 đến 10 sản phẩm tham khảo!"
             )
-            recent_count = st.slider(
+            recent_count = st.number_input(
                 "Số lượng sản phẩm tham khảo",
                 min_value=5,
                 max_value=35,
-                value=15,
+                value=10,
                 step=5,
                 help="Số lượng sản phẩm gần nhất sử dụng để ước tính giá",
                 disabled=not use_recent_only
@@ -2068,9 +2068,9 @@ def main():
             
             search_col1, search_col2, search_col3 = st.columns(3)
             with search_col1:
-                search_length = st.number_input("Dài (cm)", min_value=0, value=30, key='search_l')
+                search_length = st.number_input("Dài (cm)", min_value=0.0, value=30.0, step=0.5, key='search_l')
             with search_col2:
-                search_width = st.number_input("Rộng (cm)", min_value=0, value=30, key='search_w')
+                search_width = st.number_input("Rộng (cm)", min_value=0.0, value=30.0, step=0.5, key='search_w')
             with search_col3:
                 search_height = st.number_input("Dày (cm)", min_value=0.0, value=3.0, key='search_h')
             
