@@ -222,6 +222,12 @@ APPLICATION_CODES_SEARCH = [('', 'All')] + APPLICATION_CODES
 # Stone Color Types and their family groupings
 # Based on sku.tex - Nguyên vật liệu (Vị trí 1, 2)
 # Format: (internal_value, display_label)
+# Stone classes for categorization
+STONE_CLASSES = ['BASALT', 'GRANITE', 'BLUE STONE']
+
+# Stone Color Types and their family groupings
+# Based on sku.tex - Nguyên vật liệu (Vị trí 1, 2)
+# Format: (internal_value, display_label)
 STONE_COLOR_TYPES = [
     ('BD', 'BD - Basalt Black'),
     ('BX', 'BX - Basalt Grey'),
@@ -1062,6 +1068,7 @@ class SimilarityPricePredictor:
         region_priority: str = 'Ưu tiên 1',  # Billing Country, Regional Group, All
         no_length_limit: bool = False,  # For P3: unlimited length
         billing_country: str = None,  # For P1 market: specific country
+        selected_processing_group: str = None,  # For P2: user-selected processing group
     ) -> pd.DataFrame:
         """
         Find matching products based on priority criteria from notes.md.
@@ -1089,15 +1096,14 @@ class SimilarityPricePredictor:
         if processing_priority == 'Ưu tiên 1' and processing_code:
             # Exact match
             mask &= df['processing_code'] == processing_code
-        elif processing_priority == 'Ưu tiên 2' and processing_code:
-            # Group match: find all codes in the same processing group
-            query_group = PROCESSING_CODE_TO_GROUP.get(processing_code)
-            if query_group:
-                group_codes = PROCESSING_GROUPS.get(query_group, [processing_code])
-                mask &= df['processing_code'].isin(group_codes)
+        elif processing_priority == 'Ưu tiên 2':
+            # Group match: use user-selected group or derive from processing_code
+            if selected_processing_group and selected_processing_group in PROCESSING_GROUPS:
+                group_codes = PROCESSING_GROUPS.get(selected_processing_group, [])
             else:
-                # Fallback to exact match if code not in any group
-                mask &= df['processing_code'] == processing_code
+                query_group = PROCESSING_CODE_TO_GROUP.get(processing_code)
+                group_codes = PROCESSING_GROUPS.get(query_group, [processing_code]) if query_group else [processing_code]
+            mask &= df['processing_code'].isin(group_codes)
         # Ưu tiên 3: No filter (All processing types)
         
         # 3. Application Filter (extracted from SKU positions 3-4)
@@ -1742,12 +1748,21 @@ def main():
                     }[x],
                     index=1  # Default: Ưu tiên 2
                 )
-                # Show Processing Group when Priority 2 is selected
+                # Show Processing Group dropdown when Priority 2 is selected
+                selected_processing_group = None
                 if processing_priority == 'Ưu tiên 2':
-                    group_key = PROCESSING_CODE_TO_GROUP.get(processing_code, '')
-                    group_name = PROCESSING_GROUP_NAMES.get(group_key, 'Không xác định')
-                    group_codes = PROCESSING_GROUPS.get(group_key, [processing_code])
-                    st.info(f"📦 **Nhóm:** {group_name} ({', '.join(group_codes)})")
+                    # Get default group for current processing code
+                    default_group = PROCESSING_CODE_TO_GROUP.get(processing_code, 'GIA_CONG_MAY')
+                    group_options = list(PROCESSING_GROUP_NAMES.keys())
+                    default_index = group_options.index(default_group) if default_group in group_options else 0
+                    
+                    selected_processing_group = st.selectbox(
+                        "Chọn nhóm gia công",
+                        options=group_options,
+                        format_func=lambda x: f"{PROCESSING_GROUP_NAMES.get(x, x)} ({', '.join(PROCESSING_GROUPS.get(x, []))})",
+                        index=default_index,
+                        help="Lọc theo nhóm gia công thay vì loại gia công cụ thể"
+                    )
             with col_p2:
                 dimension_priority = st.selectbox(
                     "Kích thước",
@@ -1850,6 +1865,7 @@ def main():
                 region_priority=region_priority,
                 no_length_limit=no_length_limit,
                 billing_country=billing_country_selected,
+                selected_processing_group=selected_processing_group,
             )
             
             # Store matches in session state to persist across reruns
@@ -1866,6 +1882,24 @@ def main():
                 stone_color_type=stone_color,
                 processing_code=processing_code
             )
+            
+            # Store estimation and query params in session state to persist across reruns
+            st.session_state.last_estimation = estimation.copy()
+            st.session_state.last_query_params = {
+                'stone_color': stone_color,
+                'length': length,
+                'width': width,
+                'height': height,
+                'processing_code': processing_code,
+                'regional_group': customer_regional_group,
+                'applications': selected_applications,
+                'charge_unit': charge_unit,
+                'customer_type': customer_type,
+                'use_recent_only': use_recent_only,
+                'recent_count': recent_count,
+                'apply_yearly_adjustment': apply_yearly_adjustment,
+                'yearly_increase_pct': yearly_increase_pct,
+            }
             
             st.markdown("#### 📊 Kết quả ước tính")
             
@@ -2055,6 +2089,129 @@ def main():
                 st.markdown(f"- HS: {hs}")
                 st.markdown(f"- Khối lượng: **{weight_tons:.4f} tấn**")
         
+        # ============ SHOW PERSISTED ESTIMATION RESULTS (when page reruns e.g. checkbox click) ============
+        # Show estimation results from session state when predict_btn is not pressed but we have cached results
+        if not predict_btn and 'last_estimation' in st.session_state and st.session_state.last_estimation is not None:
+            estimation = st.session_state.last_estimation
+            query_params = st.session_state.get('last_query_params', {})
+            
+            # Only show if we have a valid estimation
+            if estimation.get('estimated_price') is not None:
+                st.divider()
+                st.markdown("#### 📊 Kết quả ước tính")
+                
+                # Confidence indicator
+                confidence_colors = {
+                    'high': '#6bcb77',
+                    'medium': '#ffd93d',
+                    'low': '#ff6b6b',
+                    'very_low': '#9e7cc1',
+                }
+                confidence_labels = {
+                    'high': 'Cao (≥10 mẫu)',
+                    'medium': 'Trung bình (5-9 mẫu)',
+                    'low': 'Thấp (2-4 mẫu)',
+                    'very_low': 'Rất thấp (1 mẫu)',
+                }
+                conf_color = confidence_colors.get(estimation.get('confidence', ''), '#808080')
+                conf_label = confidence_labels.get(estimation.get('confidence', ''), 'N/A')
+                
+                st.markdown(f"""
+                <div style="background-color: {conf_color}; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;">
+                    <h3 style="color: white; margin: 0;">Độ tin cậy: {conf_label}</h3>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Main estimated price
+                cached_charge_unit = query_params.get('charge_unit', charge_unit)
+                st.metric(f"💰 Giá ước tính ({cached_charge_unit})", f"${estimation['estimated_price']:,.2f}")
+                
+                # Apply yearly price adjustment if enabled (use current sidebar settings)
+                if apply_yearly_adjustment and yearly_increase_pct > 0:
+                    current_year = datetime.now().year
+                    avg_fy_year = estimation.get('avg_fy_year', current_year)
+                    if avg_fy_year and avg_fy_year < current_year:
+                        years_diff = current_year - int(avg_fy_year)
+                        adjustment_factor = (1 + yearly_increase_pct / 100) ** years_diff
+                        adjusted_price = estimation['estimated_price'] * adjustment_factor
+                        adjusted_min = estimation['min_price'] * adjustment_factor
+                        adjusted_max = estimation['max_price'] * adjustment_factor
+                        
+                        st.markdown(f"**💵 Giá điều chỉnh ({current_year}):** **\\${adjusted_price:,.2f}** (+{yearly_increase_pct:.1f}% × {years_diff} năm)")
+                        st.markdown(f"Khoảng giá điều chỉnh: **\\${adjusted_min:,.2f}** – **\\${adjusted_max:,.2f}**")
+                    else:
+                        st.markdown(f"Khoảng giá thực tế: **\\${estimation['min_price']:,.2f}** – **\\${estimation['max_price']:,.2f}**")
+                else:
+                    st.markdown(f"Khoảng giá thực tế: **\\${estimation['min_price']:,.2f}** – **\\${estimation['max_price']:,.2f}**")
+                
+                st.markdown(f"**Giá trung vị:** ${estimation.get('median_price', estimation['estimated_price']):,.2f}")
+                
+                # Show match count info
+                use_recent = query_params.get('use_recent_only', use_recent_only)
+                if use_recent and estimation.get('total_matches', 0) > estimation.get('match_count', 0):
+                    st.markdown(f"**Số mẫu khớp:** {estimation['match_count']} / {estimation['total_matches']} (sử dụng {estimation['match_count']} mẫu gần nhất)")
+                    if estimation.get('years_used'):
+                        st.markdown(f"**Năm tham khảo:** {estimation['years_used']}")
+                else:
+                    st.markdown(f"**Số mẫu khớp:** {estimation.get('match_count', 0)}")
+                
+                # Show price trend if available
+                if estimation.get('price_trend') and estimation.get('trend_pct') is not None:
+                    trend_pct = estimation['trend_pct']
+                    if estimation['price_trend'] == 'up':
+                        st.markdown(f"📈 **Xu hướng giá:** Tăng **+{abs(trend_pct):.1f}%** so với năm trước")
+                    elif estimation['price_trend'] == 'down':
+                        st.markdown(f"📉 **Xu hướng giá:** Giảm **-{abs(trend_pct):.1f}%** so với năm trước")
+                    else:
+                        st.markdown(f"➡️ **Xu hướng giá:** Ổn định")
+                
+                st.divider()
+                
+                # Calculate segment for pricing (use current sidebar settings)
+                first_app = selected_applications[0] if selected_applications else ''
+                cached_height = query_params.get('height', height)
+                cached_length = query_params.get('length', length)
+                cached_width = query_params.get('width', width)
+                cached_stone_color = query_params.get('stone_color', stone_color)
+                cached_processing_code = query_params.get('processing_code', processing_code)
+                
+                est_price_m3 = convert_price(
+                    estimation['estimated_price'], cached_charge_unit, 'USD/M3',
+                    height_cm=cached_height, length_cm=cached_length, width_cm=cached_width,
+                    tlr=get_tlr(cached_stone_color, cached_processing_code)
+                )
+                segment = classify_segment(est_price_m3, height_cm=cached_height, family=first_app, processing_code=cached_processing_code)
+                
+                # Customer price adjustment with segment awareness (use current customer_type from sidebar)
+                price_info = calculate_customer_price(
+                    estimation['estimated_price'], customer_type, 
+                    segment=segment, charge_unit=cached_charge_unit
+                )
+                st.markdown(f"**👤 Giá theo khách hàng loại {customer_type}:**")
+                st.markdown(f"- {price_info['customer_description']}")
+                st.markdown(f"- Khoảng giá: **\\${price_info['min_price']:,.2f}** – **\\${price_info['max_price']:,.2f}**")
+                st.markdown(f"- Điều chỉnh: {price_info['adjustment_label']}")
+                st.markdown(f"- Quyền tự quyết: {price_info['authority_range']}")
+                
+                # Product info summary
+                st.divider()
+                st.markdown("**📦 Thông tin sản phẩm:**")
+                volume_m3 = calculate_volume_m3(cached_length, cached_width, cached_height)
+                area_m2 = calculate_area_m2(cached_length, cached_width)
+                tlr = get_tlr(cached_stone_color, cached_processing_code)
+                hs = get_hs_factor((cached_length, cached_width, cached_height), cached_processing_code, first_app)
+                weight_tons = calculate_weight_tons(volume_m3, cached_stone_color, cached_processing_code, (cached_length, cached_width, cached_height), first_app)
+                
+                col_info1, col_info2 = st.columns(2)
+                with col_info1:
+                    st.markdown(f"- Kích thước: {cached_length} x {cached_width} x {cached_height} cm")
+                    st.markdown(f"- Thể tích: {volume_m3:.6f} m³")
+                    st.markdown(f"- Diện tích: {area_m2:.4f} m²")
+                with col_info2:
+                    st.markdown(f"- TLR: {tlr} tấn/m³")
+                    st.markdown(f"- HS: {hs}")
+                    st.markdown(f"- Khối lượng: **{weight_tons:.4f} tấn**")
+        
         # ============ MATCHING PRODUCTS (Full Width) ============
         # Show matching products if we have stored matches from session state
         # This allows the table to persist when checkboxes are clicked (avoiding reload reset)
@@ -2142,24 +2299,141 @@ def main():
                 # Recalculate price from selected records
                 if recalc_btn and selected_count >= 3:
                     selected_prices = selected_rows['sales_price']
+                    
+                    # Calculate average FY year from selected products for yearly adjustment
+                    avg_fy_year = None
+                    if 'fy_year' in selected_rows.columns:
+                        fy_years = pd.to_numeric(selected_rows['fy_year'], errors='coerce').dropna()
+                        if len(fy_years) > 0:
+                            avg_fy_year = int(fy_years.mean())
+                    
                     manual_estimation = {
                         'estimated_price': selected_prices.mean(),
                         'min_price': selected_prices.min(),
                         'max_price': selected_prices.max(),
                         'median_price': selected_prices.median(),
                         'match_count': selected_count,
+                        'avg_fy_year': avg_fy_year,
+                        'total_matches': len(matches),
                     }
                     
                     st.divider()
                     st.markdown("#### 📊 Kết quả tính giá từ sản phẩm đã chọn")
                     
-                    recalc_col1, recalc_col2 = st.columns(2)
-                    with recalc_col1:
-                        st.metric(f"💰 Giá trung bình ({charge_unit})", f"${manual_estimation['estimated_price']:,.2f}")
-                        st.markdown(f"**Giá trung vị:** ${manual_estimation['median_price']:,.2f}")
-                    with recalc_col2:
-                        st.markdown(f"**Khoảng giá:** \\${manual_estimation['min_price']:,.2f} – \\${manual_estimation['max_price']:,.2f}")
-                        st.markdown(f"**Số mẫu:** {manual_estimation['match_count']} sản phẩm")
+                    # Main estimated price
+                    st.metric(f"💰 Giá trung bình ({charge_unit})", f"${manual_estimation['estimated_price']:,.2f}")
+                    
+                    # Apply yearly price adjustment if enabled
+                    if apply_yearly_adjustment and yearly_increase_pct > 0:
+                        current_year = datetime.now().year
+                        if avg_fy_year and avg_fy_year < current_year:
+                            years_diff = current_year - int(avg_fy_year)
+                            adjustment_factor = (1 + yearly_increase_pct / 100) ** years_diff
+                            adjusted_price = manual_estimation['estimated_price'] * adjustment_factor
+                            adjusted_min = manual_estimation['min_price'] * adjustment_factor
+                            adjusted_max = manual_estimation['max_price'] * adjustment_factor
+                            
+                            st.markdown(f"**💵 Giá điều chỉnh ({current_year}):** **\\${adjusted_price:,.2f}** (+{yearly_increase_pct:.1f}% × {years_diff} năm)")
+                            st.markdown(f"Khoảng giá điều chỉnh: **\\${adjusted_min:,.2f}** – **\\${adjusted_max:,.2f}**")
+                        else:
+                            st.markdown(f"Khoảng giá thực tế: **\\${manual_estimation['min_price']:,.2f}** – **\\${manual_estimation['max_price']:,.2f}**")
+                    else:
+                        st.markdown(f"Khoảng giá thực tế: **\\${manual_estimation['min_price']:,.2f}** – **\\${manual_estimation['max_price']:,.2f}**")
+                    
+                    st.markdown(f"**Giá trung vị:** ${manual_estimation['median_price']:,.2f}")
+                    st.markdown(f"**Số mẫu:** {manual_estimation['match_count']} sản phẩm được chọn")
+                    
+                    st.divider()
+                    
+                    # Calculate segment for pricing
+                    first_app = selected_applications[0] if selected_applications else ''
+                    est_price_m3 = convert_price(
+                        manual_estimation['estimated_price'], charge_unit, 'USD/M3',
+                        height_cm=height, length_cm=length, width_cm=width,
+                        tlr=get_tlr(stone_color, processing_code)
+                    )
+                    segment = classify_segment(est_price_m3, height_cm=height, family=first_app, processing_code=processing_code)
+                    
+                    # Customer price adjustment with segment awareness
+                    price_info = calculate_customer_price(
+                        manual_estimation['estimated_price'], customer_type, 
+                        segment=segment, charge_unit=charge_unit
+                    )
+                    st.markdown(f"**👤 Giá theo khách hàng loại {customer_type}:**")
+                    st.markdown(f"- {price_info['customer_description']}")
+                    st.markdown(f"- Khoảng giá: **\\${price_info['min_price']:,.2f}** – **\\${price_info['max_price']:,.2f}**")
+                    st.markdown(f"- Điều chỉnh: {price_info['adjustment_label']}")
+                    st.markdown(f"- Quyền tự quyết: {price_info['authority_range']}")
+                    
+                    # Export Report Button
+                    st.divider()
+                    st.markdown("#### 📄 Xuất báo cáo")
+                    
+                    # Prepare query params for report
+                    query_params = {
+                        'stone_color': stone_color,
+                        'length': length,
+                        'width': width,
+                        'height': height,
+                        'processing_code': processing_code,
+                        'regional_group': customer_regional_group,
+                        'applications': selected_applications,
+                        'charge_unit': charge_unit,
+                        'customer_type': customer_type,
+                    }
+                    
+                    # Prepare yearly adjustment info
+                    yearly_adj_info = None
+                    if apply_yearly_adjustment and yearly_increase_pct > 0:
+                        current_year = datetime.now().year
+                        if avg_fy_year and avg_fy_year < current_year:
+                            years_diff = current_year - int(avg_fy_year)
+                            adjustment_factor = (1 + yearly_increase_pct / 100) ** years_diff
+                            adjusted_price = manual_estimation['estimated_price'] * adjustment_factor
+                            yearly_adj_info = {
+                                'applied': True,
+                                'rate': yearly_increase_pct,
+                                'avg_year': avg_fy_year,
+                                'years_diff': years_diff,
+                                'adjusted_price': adjusted_price,
+                            }
+                    
+                    # Generate HTML report (use selected products only)
+                    selected_matches = matches[matches.index.isin(selected_rows.index)]
+                    report_html = generate_price_report(
+                        query_params=query_params,
+                        estimation=manual_estimation,
+                        matched_products=selected_matches,
+                        customer_price_info=price_info,
+                        yearly_adjustment=yearly_adj_info
+                    )
+                    
+                    st.download_button(
+                        label="📥 Tải báo cáo (HTML/PDF)",
+                        data=report_html,
+                        file_name=f"stone_price_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+                        mime="text/html",
+                        help="Tải báo cáo HTML. Mở và in (Ctrl+P) để lưu PDF."
+                    )
+                    
+                    # Product info summary
+                    st.divider()
+                    st.markdown("**📦 Thông tin sản phẩm:**")
+                    volume_m3 = calculate_volume_m3(length, width, height)
+                    area_m2 = calculate_area_m2(length, width)
+                    tlr = get_tlr(stone_color, processing_code)
+                    hs = get_hs_factor((length, width, height), processing_code, first_app)
+                    weight_tons = calculate_weight_tons(volume_m3, stone_color, processing_code, (length, width, height), first_app)
+                    
+                    col_info1, col_info2 = st.columns(2)
+                    with col_info1:
+                        st.markdown(f"- Kích thước: {length} x {width} x {height} cm")
+                        st.markdown(f"- Thể tích: {volume_m3:.6f} m³")
+                        st.markdown(f"- Diện tích: {area_m2:.4f} m²")
+                    with col_info2:
+                        st.markdown(f"- TLR: {tlr} tấn/m³")
+                        st.markdown(f"- HS: {hs}")
+                        st.markdown(f"- Khối lượng: **{weight_tons:.4f} tấn**")
         
         elif predict_btn and st.session_state.model is None:
             st.warning("⚠️ Vui lòng chuẩn bị tìm kiếm trước (nút 🔍 ở sidebar)")
