@@ -1788,23 +1788,23 @@ def main():
                     }[x],
                     index=2  # Default: Ưu tiên 3 
                 )
-            
-            # Dynamic Market selector based on region_priority
-            billing_country_selected = None
-            regional_group_selected = customer_regional_group  # Use the existing regional group selection
-            
-            if region_priority == 'Ưu tiên 1':
-                # Get unique billing countries from data
-                billing_countries = ['']
-                if st.session_state.data is not None and 'billing_country' in st.session_state.data.columns:
-                    unique_countries = st.session_state.data['billing_country'].dropna().unique().tolist()
-                    billing_countries = [''] + sorted([c for c in unique_countries if c])
-                billing_country_selected = st.selectbox(
-                    "Chọn nước (Billing Country)",
-                    options=billing_countries,
-                    format_func=lambda x: 'Tất cả' if x == '' else x,
-                    help="Lọc theo quốc gia trong địa chỉ thanh toán"
-                )
+                
+                # Dynamic Market selector based on region_priority
+                billing_country_selected = None
+                regional_group_selected = customer_regional_group  # Use the existing regional group selection
+                
+                if region_priority == 'Ưu tiên 1':
+                    # Get unique billing countries from data
+                    billing_countries = ['']
+                    if st.session_state.data is not None and 'billing_country' in st.session_state.data.columns:
+                        unique_countries = st.session_state.data['billing_country'].dropna().unique().tolist()
+                        billing_countries = [''] + sorted([c for c in unique_countries if c])
+                    billing_country_selected = st.selectbox(
+                        "Chọn nước (Billing Country)",
+                        options=billing_countries,
+                        format_func=lambda x: 'Tất cả' if x == '' else x,
+                        help="Lọc theo quốc gia trong địa chỉ thanh toán"
+                    )
             
             st.divider()
             st.markdown("#### 📅 Cài đặt tính toán giá")
