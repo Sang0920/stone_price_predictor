@@ -62,6 +62,47 @@ APPLICATION_CODE_MAP = {
     '13': ('Paving stone / Paving slab', 'Đá lát ngoài trời'),
 }
 
+# Stone Color Type mapping (SKU positions 1-2)
+# Per sku.tex - Nguyên vật liệu (Vị trí 1, 2)
+# Maps 2-letter code to full English name (for display purposes)
+STONE_CODE_NAMES = {
+    'MB': 'BLUESTONE',        # Marble Bluestone
+    'MT': 'WHITE MARBLE',     # Marble Trắng
+    'MV': 'YELLOW MARBLE',    # Marble Vàng
+    'BT': 'HIVE BASALT',      # Đá Bazan tổ ong
+    'BX': 'GREY BASALT',      # Đá Bazan Xám
+    'BD': 'BLACK BASALT',     # Đá Bazan Đen
+    'GX': 'GREY GRANITE',     # Đá Granite Xám
+    'GT': 'WHITE GRANITE',    # Đá Granite Trắng
+    'GV': 'YELLOW GRANITE',   # Đá Granite Vàng
+    'GD': 'RED GRANITE',      # Đá Granite Đỏ
+    'GH': 'PINK GRANITE',     # Đá Granite Hồng
+}
+
+# Valid 2-letter stone codes for validation
+VALID_STONE_CODES = set(STONE_CODE_NAMES.keys())
+
+
+def extract_stone_code(sku: str) -> str:
+    """
+    Extract stone color code from SKU positions 1-2.
+    
+    Per sku.tex - Nguyên vật liệu (Vị trí 1, 2):
+    Returns the 2-letter code (BD, BX, BT, GX, GT, GV, GD, GH, MB, MT, MV)
+    
+    Args:
+        sku: The SKU/StockKeepingUnit string
+        
+    Returns:
+        2-letter stone code (e.g., 'BD', 'BX') or empty string if invalid
+    """
+    if not sku or not isinstance(sku, str) or len(sku) < 2:
+        return ''
+    
+    stone_code = sku.upper().strip()[:2]
+    # Return the code if it's valid, otherwise empty string
+    return stone_code if stone_code in VALID_STONE_CODES else ''
+
 
 def extract_application_code(sku: str) -> tuple:
     """
@@ -218,7 +259,6 @@ class SalesforceDataLoader:
             Product2.Description,
             Product2.Family,
             Product2.STONE_Class__c,
-            Product2.STONE_Color_Type__c,
             Product2.Long__c,
             Product2.Width__c,
             Product2.High__c,
@@ -292,7 +332,7 @@ class SalesforceDataLoader:
                 "description": product.get("Description"),
                 "family": product.get("Family"),
                 "stone_class": product.get("STONE_Class__c"),
-                "stone_color_type": product.get("STONE_Color_Type__c"),
+                "stone_color_type": extract_stone_code(product.get("StockKeepingUnit", "")),
                 "length_cm": length,
                 "width_cm": width,
                 "height_cm": height,
@@ -331,7 +371,6 @@ class SalesforceDataLoader:
             Contract__r.Account__r.Account_Code__c,
             Contract__r.Account__r.Nhom_Khu_vuc_KH__c,
             Contract__r.Account__r.BillingAddress,
-            Product__r.STONE_Color_Type__c,
             Product__r.StockKeepingUnit,
             Product__r.Family,
             Segment__c,
@@ -411,7 +450,7 @@ class SalesforceDataLoader:
                 "account_code": account.get("Account_Code__c"),  # From Contract__r.Account__r.Account_Code__c
                 "customer_regional_group": account.get("Nhom_Khu_vuc_KH__c"),  # Customer Regional Group
                 "billing_country": billing_address.get("country") if billing_address else None,  # Billing Country
-                "stone_color_type": product.get("STONE_Color_Type__c"),
+                "stone_color_type": extract_stone_code(product.get("StockKeepingUnit", "")),
                 "sku": product.get("StockKeepingUnit"),  # SKU like BD01DOT2-06004060
                 "family": product.get("Family"),
                 "segment": segment,
@@ -483,7 +522,6 @@ class SalesforceDataLoader:
             Description,
             Family,
             STONE_Class__c,
-            STONE_Color_Type__c,
             Long__c,
             Width__c,
             High__c,
@@ -517,7 +555,7 @@ class SalesforceDataLoader:
                 "description": r.get("Description"),
                 "family": r.get("Family"),
                 "stone_class": r.get("STONE_Class__c"),
-                "stone_color_type": r.get("STONE_Color_Type__c"),
+                "stone_color_type": extract_stone_code(r.get("StockKeepingUnit", "")),
                 "length_cm": length,
                 "width_cm": width,
                 "height_cm": height,
