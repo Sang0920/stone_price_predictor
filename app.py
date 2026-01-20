@@ -1828,7 +1828,7 @@ def main():
             apply_yearly_adjustment = st.checkbox(
                 "Áp dụng điều chỉnh giá theo năm",
                 value=True,
-                help="Điều chỉnh giá dựa trên chi phí nguyên vật liệu và nhân công tăng hàng năm (+3% đến +5%)"
+                help="Tỷ lệ tăng giá hàng năm do chi phí nguyên vật liệu và nhân công (thường 3-5%) hoặc điều chỉnh theo lạm phát. Xem thêm [tại đây](https://www.tradingview.com/markets/world-economy/charts-global-trends/)"
             )
             yearly_increase_pct = st.slider(
                 "Tỷ lệ tăng giá hàng năm (%)",
@@ -1837,7 +1837,6 @@ def main():
                 value=0.5,
                 step=0.5,
                 format="%.1f%%",
-                help="Tỷ lệ tăng giá hàng năm do chi phí nguyên vật liệu và nhân công (thường 3-5%) hoặc điều chỉnh theo lạm phát. Xem thêm tại [link](https://www.tradingview.com/markets/world-economy/charts-global-trends/)",
                 disabled=not apply_yearly_adjustment
             )
             
