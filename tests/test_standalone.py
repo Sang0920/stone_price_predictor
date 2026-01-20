@@ -39,6 +39,7 @@ def create_sample_data():
         'sales_price': [8.75, 13.82, 19.54, 1.50, 4.20],
         'charge_unit': ['USD/PC', 'USD/PC', 'USD/PC', 'USD/PC', 'USD/PC'],
         'customer_regional_group': ['Nhóm đầu 3', 'Nhóm đầu 3', 'Nhóm đầu 3', 'Nhóm đầu 1', 'Nhóm đầu 2'],
+        'billing_country': ['Germany', 'Germany', 'United States', 'Belgium', 'France'],
         'fy_year': [2025, 2025, 2024, 2024, 2025],
         'created_date': pd.to_datetime(['2025-06-01', '2025-05-01', '2024-11-01', '2024-08-01', '2025-03-01']),
     })
@@ -237,8 +238,8 @@ def run_tests():
         failed += 1
     
     tol_3 = DIMENSION_PRIORITY_LEVELS['Ưu tiên 3 - Sai lệch lớn']
-    if test_result("Priority 3: large tolerance (5,15,30)", 
-                   tol_3['height'] == 5 and tol_3['width'] == 15 and tol_3['length'] == 30):
+    if test_result("Priority 3: large tolerance (5,20,30)", 
+                   tol_3['height'] == 5 and tol_3['width'] == 20 and tol_3['length'] == 30):
         passed += 1
     else:
         failed += 1

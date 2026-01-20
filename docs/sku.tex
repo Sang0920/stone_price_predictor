@@ -1,0 +1,185 @@
+\documentclass[a4paper,12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T5]{fontenc} % Essential for Vietnamese font rendering
+\usepackage[vietnamese]{babel}
+\usepackage{geometry}
+\usepackage{booktabs} % For nicer tables
+\usepackage{longtable} % For tables that span pages
+\usepackage{array}
+\usepackage{amsmath}
+
+\geometry{left=2cm, right=2cm, top=2cm, bottom=2cm}
+
+\title{\textbf{QUY ĐỊNH MÃ SKU SẢN PHẨM}}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Nguyên tắc đặt mã sản phẩm}
+% Source: [cite: 1, 2, 4, 5]
+
+Mã sản phẩm bao gồm chuỗi các ký tự và số được sắp xếp theo trật tự logic để quản lý vận hành. Cấu trúc mã được quy định như sau:
+
+\begin{longtable}{|p{1.5cm}|p{3.5cm}|p{9cm}|}
+\hline
+\textbf{Vị trí} & \textbf{Định dạng} & \textbf{Mô tả} \\
+\hline
+\endhead
+
+1, 2 & 2 chữ cái & \textbf{Nguyên vật liệu} (Mã loại đá). \\
+\hline
+3, 4 & 2 số & \textbf{Mục đích sử dụng}. \\
+\hline
+5, 6, 7 & 3 chữ cái & \textbf{Mã gia công bề mặt chính}. \\
+\hline
+8 & 1 số & \textbf{Mã phân biệt gia công phụ}. \\
+\hline
+9, 10, 11, 12 & 4 số (mm) & \textbf{Chiều dài}. \\
+\hline
+13 & 1 số hoặc 1 chữ & \textbf{Chiều rộng}: 1 số đối với đá hình hộp hoặc 1 chữ cái đối với sản phẩm đặc biệt (Vành, trụ, chữ L, chữ U,...). \\
+\hline
+14, 15, 16 & 3 số (mm) & \textbf{Chiều cao}. \\
+\hline
+\end{longtable}
+
+\subsection{Ví dụ minh họa}
+% Source: 
+
+\textbf{Mã SKU: BD01DOT2-06004060}
+
+\begin{itemize}
+    \item \textbf{BD}: Đá bazan đen (Nguyên vật liệu).
+    \item \textbf{01}: Đá lát (Mục đích sử dụng).
+    \item \textbf{DOT}: Mặt đốt (Gia công bề mặt chính).
+    \item \textbf{2}: Cạnh chẻ tay tự nhiên (Gia công phụ).
+    \item \textbf{-}: Dấu gạch nối phân cách.
+    \item \textbf{0600}: Chiều dài 600mm.
+    \item \textbf{4}: Ký hiệu chiều rộng 400mm.
+    \item \textbf{060}: Chiều cao 60mm.
+\end{itemize}
+
+\textbf{Diễn giải:} BAZAN ĐEN LÁT NỀN, MẶT ĐỐT, CẠNH CHẺ TAY TỰ NHIÊN, KT 600x400x60 mm.
+
+\section{Cách gọi tên tiếng Việt}
+% Source: 
+
+Nguyên tắc diễn giải tên sản phẩm theo thứ tự logic:
+
+\begin{enumerate}
+    \item \textbf{Sản phẩm phổ thông:} Nguyên liệu + Tên sản phẩm + Gia công mặt + Cạnh/Đáy.
+    \item \textbf{Sản phẩm cao cấp/phức tạp:} Nguyên liệu + Tên sản phẩm + Gia công mặt + Cạnh + Đáy + Mép + Gia công khác + Hình vẽ (nếu có).
+\end{enumerate}
+
+\textbf{Ví dụ:}
+\begin{itemize}
+    \item \textit{Phổ thông:} Bazan đen Lát nền, mặt Đốt, cạnh Chẻ tay, đáy Cưa[cite: 14].
+    \item \textit{Cao cấp:} Bazan xám Hồ bơi, mặt Đốt, 1 cạnh dài Hon, các cạnh còn lại Cưa, đáy Xẻ rãnh 0.7x0.7cm theo chiều dài, các mép trên Vạt 3mm, Khoan 2 đầu, theo Bản vẽ đính kèm[cite: 16].
+\end{itemize}
+
+\section{Bảng ký hiệu tra cứu}
+
+\subsection{Nguyên vật liệu (Vị trí 1, 2)}
+% Source: 
+\begin{longtable}{llp{5cm}}
+\toprule
+\textbf{Ký hiệu} & \textbf{Tên tiếng Việt} & \textbf{Tên tiếng Anh} \\
+\midrule
+MB & Marble Bluestone & Marble Blue \\
+MT & Marble Trắng & Marble White \\
+MV & Marble Vàng & Marble Yellow \\
+BT & Đá Bazan tổ ong & Basalt Hive \\
+BX & Đá Bazan Xám & Basalt Grey \\
+BD & Đá Bazan Đen & Basalt Black \\
+GX & Đá Granite Xám & Granite Grey \\
+GT & Đá Granite Trắng & Granite White \\
+GV & Đá Granite Vàng & Granite Yellow \\
+GD & Đá Granite Đỏ & Granite Red \\
+GH & Đá Granite Hồng & Granite Pink \\
+\bottomrule
+\end{longtable}
+
+\subsection{Mục đích sử dụng (Vị trí 3, 4)}
+% Source: 
+\begin{longtable}{lp{10cm}}
+\toprule
+\textbf{Ký hiệu} & \textbf{Mô tả} \\
+\midrule
+01 & Đá lát nền ngoại thất (Cubic, tấm) \\
+02 & Tường rào (Đá khối, NTR) \\
+03 & Đá cây \\
+04 & Đá bậc thang (Nguyên khối, ốp BT) \\
+05 & Đá mỹ nghệ \\
+06 & Cao cấp hồ bơi, bộ cửa \\
+07 & Lát nền bên trong, đá bộ \\
+08 & Ốp tường \\
+09 & Slab, bàn bếp, cao cấp \\
+\bottomrule
+\end{longtable}
+
+\subsection{Gia công bề mặt chính (Vị trí 5, 6, 7)}
+% Source: 
+\begin{longtable}{ll}
+\toprule
+\textbf{Ký hiệu} & \textbf{Gia công bề mặt} \\
+\midrule
+CTA & Chẻ tay tự nhiên \\
+CUA & Mặt cưa \\
+CLO & Cưa lột tay \\
+TDE & Tẩy đẹp \\
+DOT & Mặt đốt \\
+HON & Mặt hon \\
+BON & Mặt bóng \\
+BAM & Mặt băm \\
+GCR & Giả cổ rung \\
+GCT & Giả cổ tay \\
+MGI & Mài giấy \\
+PCA & Mặt phun cát \\
+MCA & Mài cát \\
+QME & Quay mẻ \\
+TLO & Tách lồi \\
+\bottomrule
+\end{longtable}
+
+\subsection{Gia công phụ (Vị trí 8)}
+% Source: 
+\begin{longtable}{lp{8cm}}
+\toprule
+\textbf{Ký hiệu} & \textbf{Gia công phụ} \\
+\midrule
+0 & Không có gia công phụ \\
+1 & Cạnh cưa \\
+2 & Cạnh chẻ tay tự nhiên \\
+3 & Cạnh hone \\
+4 & Cạnh đốt \\
+5 & Cạnh băm \\
+6 & Cạnh bo tròn R \\
+7 & Đáy băm \\
+8 & Gõ mẻ \\
+9 & Gia công khác (Có chú thích) \\
+\bottomrule
+\end{longtable}
+
+\subsection{Sản phẩm đặc biệt (Vị trí 13)}
+% Source: 
+\textit{Lưu ý: Sử dụng khi sản phẩm không phải hình khối chữ nhật tiêu chuẩn hoặc có yêu cầu đặc biệt.}
+
+\begin{longtable}{ll}
+\toprule
+\textbf{Ký hiệu} & \textbf{Sản phẩm đặc biệt} \\
+\midrule
+R & Xẻ rãnh thoát nước \\
+L & Cắt chữ L \\
+U & Cắt chữ U \\
+G & Cắt góc vuông \\
+C & Cắt vòng cung \\
+K & Lỗ khoan \\
+T & Hình trụ \\
+B & Đá bộ \\
+V & Đá vành \\
+\bottomrule
+\end{longtable}
+
+\end{document}

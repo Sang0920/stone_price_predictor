@@ -330,6 +330,7 @@ class SalesforceDataLoader:
             Contract__r.Name,
             Contract__r.Account__r.Account_Code__c,
             Contract__r.Account__r.Nhom_Khu_vuc_KH__c,
+            Contract__r.Account__r.BillingAddress,
             Product__r.STONE_Color_Type__c,
             Product__r.StockKeepingUnit,
             Product__r.Family,
@@ -372,6 +373,8 @@ class SalesforceDataLoader:
             contract = r.get("Contract__r") or {}
             # Get Account from nested Contract__r.Account__r
             account = contract.get("Account__r") or {}
+            # Extract billing country from BillingAddress compound field
+            billing_address = account.get("BillingAddress") or {}
             
             # Use dimensions from contract product
             length = r.get("Length__c") or 0
@@ -407,6 +410,7 @@ class SalesforceDataLoader:
                 "contract_name": contract.get("Name"),
                 "account_code": account.get("Account_Code__c"),  # From Contract__r.Account__r.Account_Code__c
                 "customer_regional_group": account.get("Nhom_Khu_vuc_KH__c"),  # Customer Regional Group
+                "billing_country": billing_address.get("country") if billing_address else None,  # Billing Country
                 "stone_color_type": product.get("STONE_Color_Type__c"),
                 "sku": product.get("StockKeepingUnit"),  # SKU like BD01DOT2-06004060
                 "family": product.get("Family"),

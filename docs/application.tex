@@ -1,0 +1,44 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T5]{fontenc} % Required for Vietnamese characters in pdfLaTeX
+\usepackage[vietnamese,english]{babel}
+\usepackage{geometry}
+\usepackage{booktabs} % For professional looking tables
+\usepackage{tabularx} % For auto-adjusting column widths
+
+% Set margins to fit the wide table
+\geometry{a4paper, margin=0.5in}
+
+\begin{document}
+
+\begin{table}[ht]
+\centering
+\small % Reduces font size slightly to fit content
+\renewcommand{\arraystretch}{1.3} % Adds padding to rows
+\begin{tabularx}{\textwidth}{l l l >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+\toprule
+\textbf{ỨNG DỤNG} & \textbf{Code} & \textbf{Name (English)} & \textbf{Name (Vietnamese)} & \textbf{Notes} \\
+\midrule
+CUBE & 1.1 & Cubes / Cobbles & Cubic (Đá vuông) & \\
+PAVING & 1.3 & Paving stone / Paving slab & Đá lát ngoài trời & \\
+WALL\_STONE & 2.1 & Wall stone / Wall brick & Đá xây tường rào & \\
+WALL\_COVERING & 2.2 & Wall covering / wall top & Đá ốp tường rào & \\
+ROCKFACE\_WALLING & 2.3 & Rockface Wailing & Đá mặt lồi ốp tường & \\
+PALISADE & 3.1 & Palisades & Đá cây & \\
+KERB & 3.2 & Border / Kerbs & Đá bó vỉa hè loại thẳng & \\
+CORNER & 3.3 & Corner & Đá bó vỉa hè, loại góc hoặc cong & \\
+BLOCK\_STEP & 4.1 & Stair / Step & Đá bậc thang nguyên khối & Maps to 4.1 (Monolithic/Solid Step) cause of the "Block" prefix \\
+STEP & 4.1, 4.2 & Step & 4.1: Đá bậc thang nguyên khối \newline 4.2: Đá ốp bậc thang & Multi-Item Mapping: uses "Step" for both 4.1 and 4.2 \\
+BLOCK & 5.1 & Block & Đá khối & \\
+POOL\_SURROUNDING & 6.1 & Pool surrounding & Đá ghép hồ bơi & \\
+WINDOWN\_SILL & 6.2 & Window sill & Đá bệ cửa sổ, gờ tường & \\
+TILE & 7.1-7.3 & Tile / Paver & Đá lát, cắt quy cách & \\
+SKIRTINGS & 8.1 & Skirtings & Đá len chân tường & \\
+SLAB & 9.1 & Slab & Đá slab kích thước khổ lớn & \\
+CRAZY & 1.4 & Crazy Paving & Đá dặm & \\
+\bottomrule
+\end{tabularx}
+\caption{Application Mapping Table}
+\end{table}
+
+\end{document}

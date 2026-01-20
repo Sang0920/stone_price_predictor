@@ -3,6 +3,7 @@ SELECT
     Contract__r.Name,
     Contract__r.Account__r.Account_Code__c,
     Contract__r.Account__r.Nhom_Khu_vuc_KH__c,
+    Contract__r.Account__r.BillingAddress,
     Product__r.STONE_Color_Type__c,
     Product__r.StockKeepingUnit,
     Product__r.Family,
