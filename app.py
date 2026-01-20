@@ -1655,550 +1655,337 @@ def main():
     with tab1:
         st.subheader("🔮 Ước tính giá sản phẩm (Similarity-Based)")
         
-        col1, col2 = st.columns([1, 1])
+        # Upper section: Inputs & Configuration (2:1 Ratio)
+        col1, col2 = st.columns([2, 1])
         
+        # --- LEFT COLUMN: PRODUCT INPUTS ---
         with col1:
-            st.markdown("#### Thông tin sản phẩm")
+            st.markdown("#### 📦 Thông tin sản phẩm")
             
-            # 1. Màu đá (Stone Color) - FIRST per manager's notes
-            stone_color = st.selectbox(
-                "Màu đá (Stone Color)",
-                options=[code for code, label in STONE_COLOR_TYPES],
-                format_func=lambda x: STONE_COLOR_LOOKUP.get(x, x)
-            )
+            # 1. Màu đá (Stone Color)
+            col_in1, col_in2 = st.columns([1, 1])
+            with col_in1:
+                stone_color = st.selectbox(
+                    "Màu đá (Stone Color)",
+                    options=[code for code, label in STONE_COLOR_TYPES],
+                    format_func=lambda x: STONE_COLOR_LOOKUP.get(x, x)
+                )
             
-            # 2. Kích thước (Dimensions) - SECOND
-            st.markdown("##### Kích thước")
+            # 2. Kích thước (Dimensions)
+            with col_in2:
+                st.write("") # Spacer
+                st.write("Kích thước (cm):")
+            
             col_dim1, col_dim2, col_dim3 = st.columns(3)
             with col_dim1:
-                length = st.number_input("Dài (cm)", min_value=0.1, max_value=300.0, value=30.0, step=0.5)
+                length = st.number_input("Dài", min_value=0.1, max_value=300.0, value=30.0, step=0.5)
             with col_dim2:
-                width = st.number_input("Rộng (cm)", min_value=0.1, max_value=300.0, value=30.0, step=0.5)
+                width = st.number_input("Rộng", min_value=0.1, max_value=300.0, value=30.0, step=0.5)
             with col_dim3:
-                height = st.number_input("Dày (cm)", min_value=0.5, max_value=50.0, value=3.0, step=0.5)
+                height = st.number_input("Dày", min_value=0.5, max_value=50.0, value=3.0, step=0.5)
             
-            # 3. Gia công chính (Main Processing) - THIRD
-            processing_lookup = {code: (eng, vn) for code, eng, vn in PROCESSING_CODES}
-            processing_code = st.selectbox(
-                "Gia công chính (Main Processing)",
-                options=[code for code, eng, vn in PROCESSING_CODES],
-                format_func=lambda x: f"{x} - {processing_lookup.get(x, ('Other', 'Khác'))[0]} ({processing_lookup.get(x, ('Other', 'Khác'))[1]})",
-                index=0
-            )
+            # 3. Gia công & Khu vực
+            col_in3, col_in4 = st.columns(2)
+            with col_in3:
+                processing_lookup = {code: (eng, vn) for code, eng, vn in PROCESSING_CODES}
+                processing_code = st.selectbox(
+                    "Gia công chính",
+                    options=[code for code, eng, vn in PROCESSING_CODES],
+                    format_func=lambda x: f"{x} - {processing_lookup.get(x, ('Other', 'Khác'))[0]} ({processing_lookup.get(x, ('Other', 'Khác'))[1]})",
+                    index=0
+                )
+            with col_in4:
+                customer_regional_group = st.selectbox(
+                    "Nhóm Khu vực KH",
+                    options=[code for code, name in CUSTOMER_REGIONAL_GROUPS if code],
+                    format_func=lambda x: x,
+                    index=0,
+                    help="Nhóm đầu 0-9 theo khu vực khách hàng"
+                )
             
-            # 4. Khu vực (Region) - FOURTH
-            customer_regional_group = st.selectbox(
-                "Nhóm Khu vực KH (Regional Group)",
-                options=[code for code, name in CUSTOMER_REGIONAL_GROUPS if code],
-                format_func=lambda x: x,
-                index=0,
-                help="Nhóm đầu 0-9 theo khu vực khách hàng"
-            )
-            
-            # 5. Ứng dụng (Application) - FIFTH
+            # 4. Ứng dụng & Đơn vị
             application_lookup = {code: name for code, name in APPLICATION_CODES}
             selected_applications = st.multiselect(
-                "Ứng dụng sản phẩm (Application)",
+                "Ứng dụng sản phẩm",
                 options=[code for code, name in APPLICATION_CODES],
                 format_func=lambda x: application_lookup.get(x, 'Unknown'),
                 default=[],
                 help="Chọn một hoặc nhiều ứng dụng. Để trống = Tất cả"
             )
             
-            # 6. Đơn vị tính (Unit) - SIXTH
-            charge_unit = st.selectbox("Đơn vị tính giá", CHARGE_UNITS)
+            col_in5, col_in6 = st.columns(2)
+            with col_in5:
+                charge_unit = st.selectbox("Đơn vị tính giá", CHARGE_UNITS)
+            with col_in6:
+                customer_type = st.selectbox(
+                    "Phân loại khách hàng",
+                    ['C', 'A', 'B', 'D', 'E', 'F'],
+                    format_func=lambda x: f"{x} - {CUSTOMER_PRICING_RULES[x]['description']}"
+                )
+
+        # --- RIGHT COLUMN: PRIORITY & SETTINGS ---
+        with col2:
+            # Priority Levels
+            st.markdown("#### 🎚️ Mức độ ưu tiên")
             
-            # 7. Phân loại khách hàng (Customer Classification) - SEVENTH
-            customer_type = st.selectbox(
-                "Phân loại khách hàng",
-                ['C', 'A', 'B', 'D', 'E', 'F'],
-                format_func=lambda x: f"{x} - {CUSTOMER_PRICING_RULES[x]['description']}"
+            stone_priority = st.selectbox(
+                "Loại đá",
+                options=['Ưu tiên 1', 'Ưu tiên 2', 'Ưu tiên 3'],
+                format_func=lambda x: {'Ưu tiên 1': '1 - Đúng màu', 'Ưu tiên 2': '2 - Cùng loại', 'Ưu tiên 3': '3 - Tất cả'}[x],
+                index=0
             )
             
-            st.divider()
+            processing_priority = st.selectbox(
+                "Gia công",
+                options=['Ưu tiên 1', 'Ưu tiên 2', 'Ưu tiên 3'],
+                format_func=lambda x: {'Ưu tiên 1': '1 - Đúng loại', 'Ưu tiên 2': '2 - Đúng nhóm', 'Ưu tiên 3': '3 - Tất cả'}[x],
+                index=1
+            )
             
-            # 8. Mức độ ưu tiên (Priority Levels) - EIGHTH
-            st.markdown("#### 🎚️ Mức độ ưu tiên tìm kiếm")
+            dimension_priority = st.selectbox(
+                "Kích thước",
+                options=list(DIMENSION_PRIORITY_LEVELS.keys()),
+                index=0
+            )
+            # P3 Length Checkbox
+            no_length_limit = False
+            if 'Ưu tiên 3' in dimension_priority:
+                no_length_limit = st.checkbox("∞ Dài (Unlimited)", value=False)
             
-            # Priority level selectors per notes.md
-            col_p1, col_p2 = st.columns(2)
-            with col_p1:
-                stone_priority = st.selectbox(
-                    "Loại đá",
-                    options=['Ưu tiên 1', 'Ưu tiên 2', 'Ưu tiên 3'],
-                    format_func=lambda x: {
-                        'Ưu tiên 1': '1 - Đúng màu đá',
-                        'Ưu tiên 2': '2 - Cùng chủng loại',
-                        'Ưu tiên 3': '3 - Tất cả loại đá',
-                    }[x],
-                    index=0  # Default: Ưu tiên 1 (Đúng màu đá)
-                )
-                processing_priority = st.selectbox(
-                    "Gia công",
-                    options=['Ưu tiên 1', 'Ưu tiên 2', 'Ưu tiên 3'],
-                    format_func=lambda x: {
-                        'Ưu tiên 1': '1 - Đúng loại gia công',
-                        'Ưu tiên 2': '2 - Đúng nhóm gia công',
-                        'Ưu tiên 3': '3 - Tất cả gia công',
-                    }[x],
-                    index=1  # Default: Ưu tiên 2
-                )
-            with col_p2:
-                dimension_priority = st.selectbox(
-                    "Kích thước",
-                    options=list(DIMENSION_PRIORITY_LEVELS.keys()),
-                    index=0  # Default: Ưu tiên 1 (Đúng kích thước)
-                )
-                # Show "unlimited length" checkbox when Priority 3 is selected
-                no_length_limit = False
-                if 'Ưu tiên 3' in dimension_priority:
-                    no_length_limit = st.checkbox(
-                        "Không giới hạn chiều dài",
-                        value=False,
-                        help="Bỏ giới hạn chiều dài khi tìm kiếm sản phẩm tương tự"
-                    )
-                
-                region_priority = st.selectbox(
-                    "Thị trường",
-                    options=['Ưu tiên 1', 'Ưu tiên 2', 'Ưu tiên 3'],
-                    format_func=lambda x: {
-                        'Ưu tiên 1': '1 - Đúng nước (Billing)',
-                        'Ưu tiên 2': '2 - Đúng nhóm KH',
-                        'Ưu tiên 3': '3 - Tất cả thị trường',
-                    }[x],
-                    index=2  # Default: Ưu tiên 3 
-                )
+            region_priority = st.selectbox(
+                "Thị trường",
+                options=['Ưu tiên 1', 'Ưu tiên 2', 'Ưu tiên 3'],
+                format_func=lambda x: {'Ưu tiên 1': '1 - Đúng nước', 'Ưu tiên 2': '2 - Đúng nhóm', 'Ưu tiên 3': '3 - Tất cả'}[x],
+                index=2
+            )
             
-            # Dynamic Market selector based on region_priority
+            # Dynamic Market selector
             billing_country_selected = None
-            regional_group_selected = customer_regional_group  # Use the existing regional group selection
+            regional_group_selected = customer_regional_group
             
             if region_priority == 'Ưu tiên 1':
-                # Get unique billing countries from data
                 billing_countries = ['']
                 if st.session_state.data is not None and 'billing_country' in st.session_state.data.columns:
                     unique_countries = st.session_state.data['billing_country'].dropna().unique().tolist()
                     billing_countries = [''] + sorted([c for c in unique_countries if c])
                 billing_country_selected = st.selectbox(
-                    "Chọn nước (Billing Country)",
+                    "Billing Country",
                     options=billing_countries,
-                    format_func=lambda x: 'Tất cả' if x == '' else x,
-                    help="Lọc theo quốc gia trong địa chỉ thanh toán"
+                    format_func=lambda x: 'Tất cả' if x == '' else x
                 )
             
             st.divider()
-            st.markdown("#### 📅 Cài đặt tính toán giá")
-            use_recent_only = st.checkbox(
-                "Chỉ sử dụng dữ liệu gần nhất",
-                value=True,
-                help="Chỉ sử dụng N sản phẩm gần nhất (theo năm tài chính) để ước tính giá chính xác hơn. Nên đặt từ 5 đến 10 sản phẩm tham khảo!"
-            )
-            recent_count = st.number_input(
-                "Số lượng sản phẩm tham khảo",
-                min_value=5,
-                max_value=35,
-                value=10,
-                step=5,
-                help="Số lượng sản phẩm gần nhất sử dụng để ước tính giá. Nên đặt từ 5 đến 10 sản phẩm tham khảo!",
-                disabled=not use_recent_only
-            )
             
-            # Yearly price adjustment per manager's notes
-            st.markdown("##### 📈 Điều chỉnh giá theo năm")
-            apply_yearly_adjustment = st.checkbox(
-                "Áp dụng điều chỉnh giá theo năm",
-                value=True,
-                help="Điều chỉnh giá dựa trên chi phí nguyên vật liệu và nhân công tăng hàng năm (+3% đến +5%)"
-            )
-            yearly_increase_pct = st.slider(
-                "Tỷ lệ tăng giá hàng năm (%)",
-                min_value=0.0,
-                max_value=10.0,
-                value=0.5,
-                step=0.5,
-                format="%.1f%%",
-                help="Tỷ lệ tăng giá hàng năm do chi phí nguyên vật liệu và nhân công (thường 3-5%) hoặc điều chỉnh theo lạm phát. Xem thêm tại [link](https://www.tradingview.com/markets/world-economy/charts-global-trends/)",
-                disabled=not apply_yearly_adjustment
-            )
+            # Price Settings
+            st.markdown("#### 📅 Cài đặt giá")
+            use_recent_only = st.checkbox("Chỉ dữ liệu gần nhất", value=True)
+            recent_count = st.number_input("Số lượng tham khảo", 5, 35, 10, 5, disabled=not use_recent_only)
             
-            predict_btn = st.button("🔍 Tìm kiếm & Ước tính giá", type="primary", use_container_width=True)
+            apply_yearly_adjustment = st.checkbox("Điều chỉnh theo năm", value=True)
+            yearly_increase_pct = st.slider("Tăng giá/năm (%)", 0.0, 10.0, 0.5, 0.5, format="%.1f%%", disabled=not apply_yearly_adjustment)
             
-            # Move expanders/explanations to bottom per manager's notes
-            st.divider()
-            st.markdown("#### 📖 Tài liệu tham khảo")
-            
-            # Processing groups expander
-            with st.expander("🔧 Nhóm gia công (Priority 2)"):
-                st.markdown("""
-**Nhóm gia công theo cách xử lý:**
-
-| Nhóm | Mã gia công | Mô tả |
-|------|-------------|-------|
-| **Gia công Tay** | CTA, TLO, TDE | Chẻ tay, Tự nhiên lồi, Tước đẽo |
-| **Gia công Máy + Tay** | CUA, CLO, QME, GCT | Cưa, Cưa lột, Quay mẻ, Giả cổ tay |
-| **Gia công Máy** | DOT, DOC, DOX, GCR, MGI, PCA, BAM | Đốt, Đốt chải, Đốt xịt, Giả cổ rung, Mài giấy, Phun cát, Băm |
-| **Gia công Máy Cao cấp** | HON, BON, CHA | Hone, Bóng, Chải |
-
-*Khi chọn Ưu tiên 2 cho Gia công, hệ thống sẽ tìm các sản phẩm cùng nhóm gia công.*
-                """)
-            
-            with st.expander("📋 Quy tắc định giá"):
-                st.markdown("""
-**Phân khúc giá (USD/m³):**
-| Phân khúc | Giá | Sản phẩm |
-|-----------|-----|----------|
-| 🟣 Super Premium | ≥ $1,500 | Đá mỏng 1-1.5cm, nắp tường, mỹ nghệ |
-| 🔴 Premium | ≥ $800 | Đá lát 2-5cm, slab, bậc thang |
-| 🟡 Common | ≥ $400 | Đá cây, cubic đốt, quay mẻ |
-| 🟢 Economy | < $400 | Đá gõ tay, cubic chẻ tay |
-                """)
-            
-            with st.expander("👥 Phân loại khách hàng"):
-                st.markdown("""
-| Loại | Mô tả | Điều chỉnh |
-|------|-------|------------|
-| **A** | Thân thiết >10 năm | -1.5% đến -3% |
-| **B** | Lớn 3-10 năm | -2% đến -4% |
-| **C** | Phổ thông | Giá chuẩn |
-| **D** | Mới, nhỏ | +3% đến +6% |
-| **E** | Sản phẩm mới | ×1.08-1.15 |
-| **F** | Dự án | ×1.08-1.15 |
-                """)
-            
-            with st.expander("📐 Công thức tính toán"):
-                st.markdown("""
-**Thể tích:** `m³ = (D×R×C) / 1.000.000 × SL`
-
-**Diện tích:** `m² = (D×R) / 10.000 × SL`
-
-**Trọng lượng:** `Tấn = m³ × TLR × HS`
-
-**Quy đổi giá:**
-- `Giá/m² = Giá/m³ × Cao(m)`
-- `Giá/Tấn = Giá/m³ ÷ TLR ÷ HS`
-
-**TLR tham khảo:**
-- Absolute Basalt: 2.95
-- Black Basalt: 2.65-2.70
-- Granite thường: 2.70
-- Dark Grey Granite: 2.90
-                """)
-            
-            with st.expander("🎯 Tiêu chí tìm kiếm"):
-                st.markdown("""
-| Tiêu chí | Ưu tiên 1 | Ưu tiên 2 | Ưu tiên 3 |
-|----------|-----------|-----------|-----------|
-| **Loại đá** | Đúng màu đá | Cùng chủng loại | Tất cả loại đá |
-| **Gia công** | Đúng loại gia công | Tất cả gia công | - |
-| **Cao (cm)** | ±0 | ±1 | ±5 |
-| **Rộng (cm)** | ±0 | ±5 | ±15 |
-| **Dài (cm)** | ±0 | ±10 | ±30 |
-| **Khu vực** | Đúng khu vực | Tất cả khu vực | - |
-                """)
-            
-            with st.expander("📦 Quy tắc ứng dụng sản phẩm"):
-                st.markdown("""
-| ỨNG DỤNG | Code | Name (English) | Name (Vietnamese) |
-|----------|------|----------------|-------------------|
-| CUBE | 1.1 | Cubes / Cobbles | Cubic (Đá vuông) |
-| PAVING | 1.3 | Paving stone / Paving slab | Đá lát ngoài trời |
-| CRAZY | 1.4 | Crazy Paving | Đá dặm |
-| WALL_STONE | 2.1 | Wall stone / Wall brick | Đá xây tường rào |
-| WALL_COVERING | 2.2 | Wall covering / wall top | Đá ốp tường rào |
-| ROCKFACE_WALLING | 2.3 | Rockface Walling | Đá mặt lồi ốp tường |
-| PALISADE | 3.1 | Palisades | Đá cây |
-| KERB | 3.2 | Border / Kerbs | Đá bó vỉa hè loại thẳng |
-| CORNER | 3.3 | Corner | Đá bó vỉa hè, loại góc hoặc cong |
-| BLOCK_STEP | 4.1 | Stair / Step | Đá bậc thang nguyên khối |
-| STEP | 4.1, 4.2 | Step | 4.1: Nguyên khối, 4.2: Ốp bậc |
-| BLOCK | 5.1 | Block | Đá khối |
-| POOL_SURROUNDING | 6.1 | Pool surrounding | Đá ghép hồ bơi |
-| WINDOW_SILL | 6.2 | Window sill | Đá bệ cửa sổ, gờ tường |
-| TILE | 7.1-7.3 | Tile / Paver | Đá lát, cắt quy cách |
-| SKIRTINGS | 8.1 | Skirtings | Đá len chân tường |
-| SLAB | 9.1 | Slab | Đá slab kích thước khổ lớn |
-                """)
-            
-            with st.expander("🏷️ Quy định mã SKU sản phẩm"):
-                st.markdown("""
-**Cấu trúc mã SKU:** `[Material][App][Processing][Sub]-[L][W][H]`
-
-| Vị trí | Định dạng | Mô tả |
-|--------|-----------|-------|
-| 1-2 | 2 chữ cái | Nguyên vật liệu (Mã loại đá) |
-| 3-4 | 2 số | Mục đích sử dụng |
-| 5-7 | 3 chữ cái | Gia công bề mặt chính |
-| 8 | 1 số | Gia công phụ |
-| 9-12 | 4 số (mm) | Chiều dài |
-| 13 | 1 số/chữ | Chiều rộng |
-| 14-16 | 3 số (mm) | Chiều cao |
-
-**Mã nguyên vật liệu:**
-
-| Mã | Tiếng Việt | English |
-|----|-----------|---------|
-| BD | Đá Bazan Đen | Basalt Black |
-| BX | Đá Bazan Xám | Basalt Grey |
-| BT | Đá Bazan Tổ ong | Basalt Hive |
-| GX | Đá Granite Xám | Granite Grey |
-| GT | Đá Granite Trắng | Granite White |
-| GV | Đá Granite Vàng | Granite Yellow |
-| GD | Đá Granite Đỏ | Granite Red |
-| GH | Đá Granite Hồng | Granite Pink |
-| MB | Marble Bluestone | Marble Blue |
-| MT | Marble Trắng | Marble White |
-| MV | Marble Vàng | Marble Yellow |
-
-**Ví dụ:** `BD01DOT2-06004060`
-- **BD:** Bazan Đen
-- **01:** Đá lát
-- **DOT:** Mặt đốt
-- **2:** Cạnh chẻ tay
-- **0600:** 600mm dài
-- **4:** 400mm rộng
-- **060:** 60mm cao
-                """)
-            
-            with st.expander("🔗 Nhóm loại đá (Stone Family)"):
-                st.markdown("""
-**Dùng cho Ưu tiên 2 (Priority 2) - Cùng chủng loại:**
-
-| Nhóm | Mã loại đá |
-|------|------------|
-| **BASALT** | BD (Black), BX (Grey), BT (Hive) |
-| **GRANITE** | GX (Grey), GT (White), GV (Yellow), GD (Red), GH (Pink) |
-| **MARBLE** | MB (Bluestone), MT (White), MV (Yellow) |
-
-*Khi chọn Ưu tiên 2 cho Loại đá, hệ thống sẽ tìm các sản phẩm cùng nhóm.*
-                """)
+    # Full Width Action Button
+    st.write("")
+    predict_btn = st.button("🔍 TÌM KIẾM & ƯỚC TÍNH GIÁ", type="primary", use_container_width=True)
+    st.write("")
+    
+    # --- PROCESSED RESULTS (FULL WIDTH) ---
+    if predict_btn and st.session_state.model is not None:
+        # Use similarity-based predictor
+        predictor = st.session_state.model
         
-        with col2:
-            if predict_btn and st.session_state.model is not None:
-                # Use similarity-based predictor
-                predictor = st.session_state.model
-                
-                matches = predictor.find_matching_products(
-                    stone_color_type=stone_color,
-                    processing_code=processing_code,
-                    length_cm=length,
-                    width_cm=width,
-                    height_cm=height,
-                    application_codes=selected_applications,
-                    customer_regional_group=regional_group_selected,
-                    charge_unit=charge_unit,
-                    stone_priority=stone_priority,
-                    processing_priority=processing_priority,
-                    dimension_priority=dimension_priority,
-                    region_priority=region_priority,
-                    no_length_limit=no_length_limit,
-                    billing_country=billing_country_selected,
-                )
-                
-                estimation = predictor.estimate_price(
-                    matches, 
-                    use_recent_only=use_recent_only, 
-                    recent_count=recent_count,
-                    query_length_cm=length,
-                    query_width_cm=width,
-                    query_height_cm=height,
-                    target_charge_unit=charge_unit,
-                    stone_color_type=stone_color,
-                    processing_code=processing_code
-                )
-                
-                st.markdown("#### 📊 Kết quả ước tính")
-                
-                if estimation['estimated_price'] is not None:
-                    # Confidence indicator
-                    confidence_colors = {
-                        'high': '#6bcb77',
-                        'medium': '#ffd93d',
-                        'low': '#ff6b6b',
-                        'very_low': '#9e7cc1',
-                    }
-                    confidence_labels = {
-                        'high': 'Cao (≥10 mẫu)',
-                        'medium': 'Trung bình (5-9 mẫu)',
-                        'low': 'Thấp (2-4 mẫu)',
-                        'very_low': 'Rất thấp (1 mẫu)',
-                    }
-                    conf_color = confidence_colors.get(estimation['confidence'], '#808080')
-                    conf_label = confidence_labels.get(estimation['confidence'], 'N/A')
+        matches = predictor.find_matching_products(
+            stone_color_type=stone_color,
+            processing_code=processing_code,
+            length_cm=length,
+            width_cm=width,
+            height_cm=height,
+            application_codes=selected_applications,
+            customer_regional_group=regional_group_selected,
+            charge_unit=charge_unit,
+            stone_priority=stone_priority,
+            processing_priority=processing_priority,
+            dimension_priority=dimension_priority,
+            region_priority=region_priority,
+            no_length_limit=no_length_limit,
+            billing_country=billing_country_selected,
+        )
+        
+        estimation = predictor.estimate_price(
+            matches, 
+            use_recent_only=use_recent_only, 
+            recent_count=recent_count,
+            query_length_cm=length,
+            query_width_cm=width,
+            query_height_cm=height,
+            target_charge_unit=charge_unit,
+            stone_color_type=stone_color,
+            processing_code=processing_code
+        )
+        
+        st.markdown("#### 📊 Kết quả ước tính")
+        
+        if estimation['estimated_price'] is not None:
+            # Confidence indicator
+            confidence_colors = {
+                'high': '#6bcb77',
+                'medium': '#ffd93d',
+                'low': '#ff6b6b',
+                'very_low': '#9e7cc1',
+            }
+            confidence_labels = {
+                'high': 'Cao (≥10 mẫu)',
+                'medium': 'Trung bình (5-9 mẫu)',
+                'low': 'Thấp (2-4 mẫu)',
+                'very_low': 'Rất thấp (1 mẫu)',
+            }
+            conf_color = confidence_colors.get(estimation['confidence'], '#808080')
+            conf_label = confidence_labels.get(estimation['confidence'], 'N/A')
+            
+            st.markdown(f"""
+            <div style="background-color: {conf_color}; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;">
+                <h3 style="color: white; margin: 0;">Độ tin cậy: {conf_label}</h3>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Main estimated price
+            st.metric(f"💰 Giá ước tính ({charge_unit})", f"${estimation['estimated_price']:,.2f}")
+            
+            # Apply yearly price adjustment if enabled
+            if apply_yearly_adjustment and yearly_increase_pct > 0:
+                # Calculate average year of matched products
+                current_year = datetime.now().year
+                avg_fy_year = estimation.get('avg_fy_year', current_year)
+                if avg_fy_year and avg_fy_year < current_year:
+                    years_diff = current_year - int(avg_fy_year)
+                    adjustment_factor = (1 + yearly_increase_pct / 100) ** years_diff
+                    adjusted_price = estimation['estimated_price'] * adjustment_factor
+                    adjusted_min = estimation['min_price'] * adjustment_factor
+                    adjusted_max = estimation['max_price'] * adjustment_factor
                     
-                    st.markdown(f"""
-                    <div style="background-color: {conf_color}; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;">
-                        <h3 style="color: white; margin: 0;">Độ tin cậy: {conf_label}</h3>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Main estimated price
-                    st.metric(f"💰 Giá ước tính ({charge_unit})", f"${estimation['estimated_price']:,.2f}")
-                    
-                    # Apply yearly price adjustment if enabled
-                    if apply_yearly_adjustment and yearly_increase_pct > 0:
-                        # Calculate average year of matched products
-                        current_year = datetime.now().year
-                        avg_fy_year = estimation.get('avg_fy_year', current_year)
-                        if avg_fy_year and avg_fy_year < current_year:
-                            years_diff = current_year - int(avg_fy_year)
-                            adjustment_factor = (1 + yearly_increase_pct / 100) ** years_diff
-                            adjusted_price = estimation['estimated_price'] * adjustment_factor
-                            adjusted_min = estimation['min_price'] * adjustment_factor
-                            adjusted_max = estimation['max_price'] * adjustment_factor
-                            
-                            st.markdown(f"**💵 Giá điều chỉnh ({current_year}):** **\\${adjusted_price:,.2f}** (+{yearly_increase_pct:.1f}% × {years_diff} năm)")
-                            st.markdown(f"Khoảng giá điều chỉnh: **\\${adjusted_min:,.2f}** – **\\${adjusted_max:,.2f}**")
-                        else:
-                            st.markdown(f"Khoảng giá thực tế: **\\${estimation['min_price']:,.2f}** – **\\${estimation['max_price']:,.2f}**")
-                    else:
-                        # Price range (no adjustment)
-                        st.markdown(f"Khoảng giá thực tế: **\\${estimation['min_price']:,.2f}** – **\\${estimation['max_price']:,.2f}**")
-                    
-                    st.markdown(f"**Giá trung vị:** ${estimation['median_price']:,.2f}")
-                    
-                    # Show match count info with years if using recent only
-                    if use_recent_only and estimation.get('total_matches', 0) > estimation['match_count']:
-                        st.markdown(f"**Số mẫu khớp:** {estimation['match_count']} / {estimation['total_matches']} (sử dụng {estimation['match_count']} mẫu gần nhất)")
-                        if estimation.get('years_used'):
-                            st.markdown(f"**Năm tham khảo:** {estimation['years_used']}")
-                    else:
-                        st.markdown(f"**Số mẫu khớp:** {estimation['match_count']}")
-                    
-                    # Show price trend if available
-                    if estimation.get('price_trend') and estimation.get('trend_pct') is not None:
-                        trend_pct = estimation['trend_pct']
-                        if estimation['price_trend'] == 'up':
-                            st.markdown(f"📈 **Xu hướng giá:** Tăng **+{abs(trend_pct):.1f}%** so với năm trước")
-                        elif estimation['price_trend'] == 'down':
-                            st.markdown(f"📉 **Xu hướng giá:** Giảm **-{abs(trend_pct):.1f}%** so với năm trước")
-                        else:
-                            st.markdown(f"➡️ **Xu hướng giá:** Ổn định")
-                    
-                    st.divider()
-                    
-                    # Calculate segment for pricing (use first selected application or empty for classify_segment)
-                    first_app = selected_applications[0] if selected_applications else ''
-                    est_price_m3 = convert_price(
-                        estimation['estimated_price'], charge_unit, 'USD/M3',
-                        height_cm=height, length_cm=length, width_cm=width,
-                        tlr=get_tlr(stone_color, processing_code)
-                    )
-                    segment = classify_segment(est_price_m3, height_cm=height, family=first_app, processing_code=processing_code)
-                    
-                    # Customer price adjustment with segment awareness
-                    price_info = calculate_customer_price(
-                        estimation['estimated_price'], customer_type, 
-                        segment=segment, charge_unit=charge_unit
-                    )
-                    st.markdown(f"**👤 Giá theo khách hàng loại {customer_type}:**")
-                    st.markdown(f"- {price_info['customer_description']}")
-                    st.markdown(f"- Khoảng giá: **\\${price_info['min_price']:,.2f}** – **\\${price_info['max_price']:,.2f}**")
-                    st.markdown(f"- Điều chỉnh: {price_info['adjustment_label']}")
-                    st.markdown(f"- Quyền tự quyết: {price_info['authority_range']}")
-                    
-                    # Export Report Button
-                    st.divider()
-                    st.markdown("#### 📄 Xuất báo cáo")
-                    
-                    # Prepare query params for report
-                    query_params = {
-                        'stone_color': stone_color,
-                        'length': length,
-                        'width': width,
-                        'height': height,
-                        'processing_code': processing_code,
-                        'regional_group': customer_regional_group,
-                        'applications': selected_applications,
-                        'charge_unit': charge_unit,
-                        'customer_type': customer_type,
-                    }
-                    
-                    # Prepare yearly adjustment info
-                    yearly_adj_info = None
-                    if apply_yearly_adjustment and yearly_increase_pct > 0:
-                        current_year = datetime.now().year
-                        avg_fy_year = estimation.get('avg_fy_year', current_year)
-                        if avg_fy_year and avg_fy_year < current_year:
-                            years_diff = current_year - int(avg_fy_year)
-                            adjustment_factor = (1 + yearly_increase_pct / 100) ** years_diff
-                            adjusted_price = estimation['estimated_price'] * adjustment_factor
-                            yearly_adj_info = {
-                                'applied': True,
-                                'rate': yearly_increase_pct,
-                                'avg_year': avg_fy_year,
-                                'years_diff': years_diff,
-                                'adjusted_price': adjusted_price,
-                            }
-                    
-                    # Generate HTML report
-                    report_html = generate_price_report(
-                        query_params=query_params,
-                        estimation=estimation,
-                        matched_products=matches,
-                        customer_price_info=price_info,
-                        yearly_adjustment=yearly_adj_info
-                    )
-                    
-                    st.download_button(
-                        label="📥 Tải báo cáo (HTML/PDF)",
-                        data=report_html,
-                        file_name=f"stone_price_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
-                        mime="text/html",
-                        help="Tải báo cáo HTML. Mở và in (Ctrl+P) để lưu PDF."
-                    )
-                    
+                    st.markdown(f"**💵 Giá điều chỉnh ({current_year}):** **\\${adjusted_price:,.2f}** (+{yearly_increase_pct:.1f}% × {years_diff} năm)")
+                    st.markdown(f"Khoảng giá điều chỉnh: **\\${adjusted_min:,.2f}** – **\\${adjusted_max:,.2f}**")
                 else:
-                    # Get detailed diagnostics for why no matches found
-                    diagnostics = predictor.get_match_diagnostics(
-                        stone_color_type=stone_color,
-                        processing_code=processing_code,
-                        length_cm=length,
-                        width_cm=width,
-                        height_cm=height,
-                        application_codes=selected_applications,
-                        customer_regional_group=regional_group_selected,
-                        charge_unit=charge_unit,
-                        stone_priority=stone_priority,
-                        processing_priority=processing_priority,
-                        dimension_priority=dimension_priority,
-                        region_priority=region_priority,
-                        no_length_limit=no_length_limit,
-                        billing_country=billing_country_selected,
-                    )
-                    
-                    st.warning(f"⚠️ Không tìm thấy sản phẩm phù hợp")
-                    
-                    if diagnostics.get('reason'):
-                        st.error(f"**Lý do:** {diagnostics['reason']}")
-                    
-                    if diagnostics.get('suggestions'):
-                        st.info("**💡 Gợi ý:**\n" + "\n".join([f"• {s}" for s in diagnostics['suggestions']]))
-                
-                st.divider()
-                
-                # Product info summary with weight calculation
-                st.markdown("**📦 Thông tin sản phẩm:**")
-                volume_m3 = calculate_volume_m3(length, width, height)
-                area_m2 = calculate_area_m2(length, width)
-                tlr = get_tlr(stone_color, processing_code)
-                first_app = selected_applications[0] if selected_applications else ''
-                hs = get_hs_factor((length, width, height), processing_code, first_app)
-                weight_tons = calculate_weight_tons(volume_m3, stone_color, processing_code, (length, width, height), first_app)
-                
-                col_info1, col_info2 = st.columns(2)
-                with col_info1:
-                    st.markdown(f"- Kích thước: {length} x {width} x {height} cm")
-                    st.markdown(f"- Thể tích: {volume_m3:.6f} m³")
-                    st.markdown(f"- Diện tích: {area_m2:.4f} m²")
-                with col_info2:
-                    st.markdown(f"- TLR: {tlr} tấn/m³")
-                    st.markdown(f"- HS: {hs}")
-                    st.markdown(f"- Khối lượng: **{weight_tons:.4f} tấn**")
-                
-        # ============ MATCHING PRODUCTS (Full Width) ============
-        if predict_btn and st.session_state.model is not None:
+                    st.markdown(f"Khoảng giá thực tế: **\\${estimation['min_price']:,.2f}** – **\\${estimation['max_price']:,.2f}**")
+            else:
+                # Price range (no adjustment)
+                st.markdown(f"Khoảng giá thực tế: **\\${estimation['min_price']:,.2f}** – **\\${estimation['max_price']:,.2f}**")
+            
+            st.markdown(f"**Giá trung vị:** ${estimation['median_price']:,.2f}")
+            
+            # Show match count info with years if using recent only
+            if use_recent_only and estimation.get('total_matches', 0) > estimation['match_count']:
+                st.markdown(f"**Số mẫu khớp:** {estimation['match_count']} / {estimation['total_matches']} (sử dụng {estimation['match_count']} mẫu gần nhất)")
+                if estimation.get('years_used'):
+                    st.markdown(f"**Năm tham khảo:** {estimation['years_used']}")
+            else:
+                st.markdown(f"**Số mẫu khớp:** {estimation['match_count']}")
+            
+            # Show price trend if available
+            if estimation.get('price_trend') and estimation.get('trend_pct') is not None:
+                trend_pct = estimation['trend_pct']
+                if estimation['price_trend'] == 'up':
+                    st.markdown(f"📈 **Xu hướng giá:** Tăng **+{abs(trend_pct):.1f}%** so với năm trước")
+                elif estimation['price_trend'] == 'down':
+                    st.markdown(f"📉 **Xu hướng giá:** Giảm **-{abs(trend_pct):.1f}%** so với năm trước")
+                else:
+                    st.markdown(f"➡️ **Xu hướng giá:** Ổn định")
+            
             st.divider()
-            st.markdown("#### 📋 Sản phẩm trong hệ thống khớp tiêu chí")
+            
+            # Calculate segment for pricing (use first selected application or empty for classify_segment)
+            first_app = selected_applications[0] if selected_applications else ''
+            est_price_m3 = convert_price(
+                estimation['estimated_price'], charge_unit, 'USD/M3',
+                height_cm=height, length_cm=length, width_cm=width,
+                tlr=get_tlr(stone_color, processing_code)
+            )
+            segment = classify_segment(est_price_m3, height_cm=height, family=first_app, processing_code=processing_code)
+            
+            # Customer price adjustment with segment awareness
+            price_info = calculate_customer_price(
+                estimation['estimated_price'], customer_type, 
+                segment=segment, charge_unit=charge_unit
+            )
+            st.markdown(f"**👤 Giá theo khách hàng loại {customer_type}:**")
+            st.markdown(f"- {price_info['customer_description']}")
+            st.markdown(f"- Khoảng giá: **\\${price_info['min_price']:,.2f}** – **\\${price_info['max_price']:,.2f}**")
+            st.markdown(f"- Điều chỉnh: {price_info['adjustment_label']}")
+            st.markdown(f"- Quyền tự quyết: {price_info['authority_range']}")
+            
+            st.divider()
+            # Product info summary with weight calculation
+            st.markdown("#### 📦 Thông tin chi tiết sản phẩm")
+            volume_m3 = calculate_volume_m3(length, width, height)
+            area_m2 = calculate_area_m2(length, width)
+            tlr = get_tlr(stone_color, processing_code)
+            hs = get_hs_factor((length, width, height), processing_code, first_app)
+            # weight_tons is not directly used in display but useful to have
+            
+            col_info1, col_info2, col_info3 = st.columns(3)
+            with col_info1:
+                st.markdown(f"**Kích thước:** {length} x {width} x {height} cm")
+            with col_info2:
+                st.markdown(f"**Thể tích:** {volume_m3:.6f} m³")
+                st.markdown(f"**Diện tích:** {area_m2:.4f} m²")
+            with col_info3:
+                st.markdown(f"**TLR:** {tlr}")
+                st.markdown(f"**Hệ số HS:** {hs}")
+            
+            # Export Report Button
+            st.divider()
+            st.markdown("#### 📄 Xuất báo cáo")
+            
+            # Prepare query params for report
+            query_params = {
+                'stone_color': stone_color,
+                'length': length,
+                'width': width,
+                'height': height,
+                'processing_code': processing_code,
+                'regional_group': customer_regional_group,
+                'applications': selected_applications,
+                'charge_unit': charge_unit,
+                'customer_type': customer_type,
+            }
+            
+            # Prepare yearly adjustment info
+            yearly_adj_info = None
+            if apply_yearly_adjustment and yearly_increase_pct > 0:
+                current_year = datetime.now().year
+                avg_fy_year = estimation.get('avg_fy_year', current_year)
+                if avg_fy_year and avg_fy_year < current_year:
+                    years_diff = current_year - int(avg_fy_year)
+                    adjustment_factor = (1 + yearly_increase_pct / 100) ** years_diff
+                    adjusted_price = estimation['estimated_price'] * adjustment_factor
+                    yearly_adj_info = {
+                        'applied': True,
+                        'rate': yearly_increase_pct,
+                        'avg_year': avg_fy_year,
+                        'years_diff': years_diff,
+                        'adjusted_price': adjusted_price,
+                    }
+            
+            # Generate HTML report
+            report_html = generate_price_report(
+                query_params=query_params,
+                estimation=estimation,
+                matched_products=matches,
+                customer_price_info=price_info,
+                yearly_adjustment=yearly_adj_info
+            )
+            
+            st.download_button(
+                label="📥 Tải báo cáo (HTML/PDF)",
+                data=report_html,
+                file_name=f"stone_price_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+                mime="text/html",
+                help="Tải báo cáo HTML. Mở và in (Ctrl+P) để lưu PDF."
+            )
+            
+            # Matched Products Table (Full Width)
+            st.divider()
+            st.markdown(f"#### 📋 Sản phẩm trong hệ thống khớp tiêu chí ({len(matches)})")
             
             if len(matches) > 0:
                 st.success(f"✅ Tìm thấy **{len(matches)}** sản phẩm khớp tiêu chí!")
@@ -2257,7 +2044,7 @@ def main():
                         height=350, 
                         column_config=col_config,
                         hide_index=True,
-                        key="product_selection_table"
+                        key="product_selection_table_v2"
                     )
                     
                     # Calculate price from selected records
@@ -2274,7 +2061,7 @@ def main():
                             st.success(f"✅ Đã chọn {selected_count} sản phẩm")
                     
                     with col_recalc:
-                        recalc_btn = st.button("🔄 Tính lại giá từ sản phẩm đã chọn", disabled=(selected_count < 3))
+                        recalc_btn = st.button("🔄 Tính lại giá từ sản phẩm đã chọn", disabled=(selected_count < 3), key="recalc_btn_v2")
                     
                     # Recalculate price from selected records
                     if recalc_btn and selected_count >= 3:
@@ -2297,14 +2084,184 @@ def main():
                         with recalc_col2:
                             st.markdown(f"**Khoảng giá:** \\${manual_estimation['min_price']:,.2f} – \\${manual_estimation['max_price']:,.2f}")
                             st.markdown(f"**Số mẫu:** {manual_estimation['match_count']} sản phẩm")
-            else:
-                st.info("⚠️ Không tìm thấy sản phẩm phù hợp. Thử mở rộng tiêu chí (Ưu tiên 2 hoặc 3).")
-        
-        elif predict_btn and st.session_state.model is None:
-            st.warning("⚠️ Vui lòng chuẩn bị tìm kiếm trước (nút 🔍 ở sidebar)")
-        elif not predict_btn:
-            pass  # User hasn't clicked yet
+            
+        else:
+            # Get detailed diagnostics for why no matches found
+            diagnostics = predictor.get_match_diagnostics(
+                stone_color_type=stone_color,
+                processing_code=processing_code,
+                length_cm=length,
+                width_cm=width,
+                height_cm=height,
+                application_codes=selected_applications,
+                customer_regional_group=regional_group_selected,
+                charge_unit=charge_unit,
+                stone_priority=stone_priority,
+                processing_priority=processing_priority,
+                dimension_priority=dimension_priority,
+                region_priority=region_priority,
+                no_length_limit=no_length_limit,
+                billing_country=billing_country_selected,
+            )
+            
+            st.warning(f"⚠️ Không tìm thấy sản phẩm phù hợp")
+            
+            if diagnostics.get('reason'):
+                st.error(f"**Lý do:** {diagnostics['reason']}")
+            
+            if diagnostics.get('suggestions'):
+                st.info("**💡 Gợi ý:**\n" + "\n".join([f"• {s}" for s in diagnostics['suggestions']]))
     
+    # --- REFERENCE MATERIALS (FOOTER) ---
+    st.divider()
+    st.markdown("#### 📖 Tài liệu tham khảo")
+    
+    # Processing groups expander
+    with st.expander("🔧 Nhóm gia công (Priority 2)"):
+        st.markdown("""
+**Nhóm gia công theo cách xử lý:**
+
+| Nhóm | Mã gia công | Mô tả |
+|------|-------------|-------|
+| **Gia công Tay** | CTA, TLO, TDE | Chẻ tay, Tự nhiên lồi, Tước đẽo |
+| **Gia công Máy + Tay** | CUA, CLO, QME, GCT | Cưa, Cưa lột, Quay mẻ, Giả cổ tay |
+| **Gia công Máy** | DOT, DOC, DOX, GCR, MGI, PCA, BAM | Đốt, Đốt chải, Đốt xịt, Giả cổ rung, Mài giấy, Phun cát, Băm |
+| **Gia công Máy Cao cấp** | HON, BON, CHA | Hone, Bóng, Chải |
+
+*Khi chọn Ưu tiên 2 cho Gia công, hệ thống sẽ tìm các sản phẩm cùng nhóm gia công.*
+        """)
+    
+    with st.expander("📋 Quy tắc định giá"):
+        st.markdown("""
+**Phân khúc giá (USD/m³):**
+| Phân khúc | Giá | Sản phẩm |
+|-----------|-----|----------|
+| 🟣 Super Premium | ≥ $1,500 | Đá mỏng 1-1.5cm, nắp tường, mỹ nghệ |
+| 🔴 Premium | ≥ $800 | Đá lát 2-5cm, slab, bậc thang |
+| 🟡 Common | ≥ $400 | Đá cây, cubic đốt, quay mẻ |
+| 🟢 Economy | < $400 | Đá gõ tay, cubic chẻ tay |
+        """)
+    
+    with st.expander("👥 Phân loại khách hàng"):
+        st.markdown("""
+| Loại | Mô tả | Điều chỉnh |
+|------|-------|------------|
+| **A** | Thân thiết >10 năm | -1.5% đến -3% |
+| **B** | Lớn 3-10 năm | -2% đến -4% |
+| **C** | Phổ thông | Giá chuẩn |
+| **D** | Mới, nhỏ | +3% đến +6% |
+| **E** | Sản phẩm mới | ×1.08-1.15 |
+| **F** | Dự án | ×1.08-1.15 |
+        """)
+    
+    with st.expander("📐 Công thức tính toán"):
+        st.markdown("""
+**Thể tích:** `m³ = (D×R×C) / 1.000.000 × SL`
+
+**Diện tích:** `m² = (D×R) / 10.000 × SL`
+
+**Trọng lượng:** `Tấn = m³ × TLR × HS`
+
+**Quy đổi giá:**
+- `Giá/m² = Giá/m³ × Cao(m)`
+- `Giá/Tấn = Giá/m³ ÷ TLR ÷ HS`
+
+**TLR tham khảo:**
+- Absolute Basalt: 2.95
+- Black Basalt: 2.65-2.70
+- Granite thường: 2.70
+- Dark Grey Granite: 2.90
+        """)
+    
+    with st.expander("🎯 Tiêu chí tìm kiếm"):
+        st.markdown("""
+| Tiêu chí | Ưu tiên 1 | Ưu tiên 2 | Ưu tiên 3 |
+|----------|-----------|-----------|-----------|
+| **Loại đá** | Đúng màu đá | Cùng chủng loại | Tất cả loại đá |
+| **Gia công** | Đúng loại gia công | Tất cả gia công | - |
+| **Cao (cm)** | ±0 | ±1 | ±5 |
+| **Rộng (cm)** | ±0 | ±5 | ±15 |
+| **Dài (cm)** | ±0 | ±10 | ±30 |
+| **Khu vực** | Đúng khu vực | Tất cả khu vực | - |
+        """)
+    
+    with st.expander("📦 Quy tắc ứng dụng sản phẩm"):
+        st.markdown("""
+| ỨNG DỤNG | Code | Name (English) | Name (Vietnamese) |
+|----------|------|----------------|-------------------|
+| CUBE | 1.1 | Cubes / Cobbles | Cubic (Đá vuông) |
+| PAVING | 1.3 | Paving stone / Paving slab | Đá lát ngoài trời |
+| CRAZY | 1.4 | Crazy Paving | Đá dặm |
+| WALL_STONE | 2.1 | Wall stone / Wall brick | Đá xây tường rào |
+| WALL_COVERING | 2.2 | Wall covering / wall top | Đá ốp tường rào |
+| ROCKFACE_WALLING | 2.3 | Rockface Walling | Đá mặt lồi ốp tường |
+| PALISADE | 3.1 | Palisades | Đá cây |
+| KERB | 3.2 | Border / Kerbs | Đá bó vỉa hè loại thẳng |
+| CORNER | 3.3 | Corner | Đá bó vỉa hè, loại góc hoặc cong |
+| BLOCK_STEP | 4.1 | Stair / Step | Đá bậc thang nguyên khối |
+| STEP | 4.1, 4.2 | Step | 4.1: Nguyên khối, 4.2: Ốp bậc |
+| BLOCK | 5.1 | Block | Đá khối |
+| POOL_SURROUNDING | 6.1 | Pool surrounding | Đá ghép hồ bơi |
+| WINDOW_SILL | 6.2 | Window sill | Đá bệ cửa sổ, gờ tường |
+| TILE | 7.1-7.3 | Tile / Paver | Đá lát, cắt quy cách |
+| SKIRTINGS | 8.1 | Skirtings | Đá len chân tường |
+| SLAB | 9.1 | Slab | Đá slab kích thước khổ lớn |
+        """)
+    
+    with st.expander("🏷️ Quy định mã SKU sản phẩm"):
+        st.markdown("""
+**Cấu trúc mã SKU:** `[Material][App][Processing][Sub]-[L][W][H]`
+
+| Vị trí | Định dạng | Mô tả |
+|--------|-----------|-------|
+| 1-2 | 2 chữ cái | Nguyên vật liệu (Mã loại đá) |
+| 3-4 | 2 số | Mục đích sử dụng |
+| 5-7 | 3 chữ cái | Gia công bề mặt chính |
+| 8 | 1 số | Gia công phụ |
+| 9-12 | 4 số (mm) | Chiều dài |
+| 13 | 1 số/chữ | Chiều rộng |
+| 14-16 | 3 số (mm) | Chiều cao |
+
+**Mã nguyên vật liệu:**
+
+| Mã | Tiếng Việt | English |
+|----|-----------|---------|
+| BD | Đá Bazan Đen | Basalt Black |
+| BX | Đá Bazan Xám | Basalt Grey |
+| BT | Đá Bazan Tổ ong | Basalt Hive |
+| GX | Đá Granite Xám | Granite Grey |
+| GT | Đá Granite Trắng | Granite White |
+| GV | Đá Granite Vàng | Granite Yellow |
+| GD | Đá Granite Đỏ | Granite Red |
+| GH | Đá Granite Hồng | Granite Pink |
+| MB | Marble Bluestone | Marble Blue |
+| MT | Marble Trắng | Marble White |
+| MV | Marble Vàng | Marble Yellow |
+
+**Ví dụ:** `BD01DOT2-06004060`
+- **BD:** Bazan Đen
+- **01:** Đá lát
+- **DOT:** Mặt đốt
+- **2:** Cạnh chẻ tay
+- **0600:** 600mm dài
+- **4:** 400mm rộng
+- **060:** 60mm cao
+        """)
+    
+    with st.expander("🔗 Nhóm loại đá (Stone Family)"):
+        st.markdown("""
+**Dùng cho Ưu tiên 2 (Priority 2) - Cùng chủng loại:**
+
+| Nhóm | Mã loại đá |
+|------|------------|
+| **BASALT** | BD (Black), BX (Grey), BT (Hive) |
+| **GRANITE** | GX (Grey), GT (White), GV (Yellow), GD (Red), GH (Pink) |
+| **MARBLE** | MB (Bluestone), MT (White), MV (Yellow) |
+
+*Khi chọn Ưu tiên 2 cho Loại đá, hệ thống sẽ tìm các sản phẩm cùng nhóm.*
+        """)
+            
+
     # Tab 2: Data Analysis
     with tab2:
         st.subheader("📊 Phân tích dữ liệu giá")
