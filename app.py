@@ -1047,7 +1047,14 @@ def generate_price_report(
             hs_str = f"{hs:.2f}" if hs and pd.notna(hs) else "calc"
             price = row.get('sales_price', 0)
             unit = row.get('charge_unit', 'N/A')
-            year = row.get('fy_year', 'N/A')
+            
+            # Format year as integer
+            year_val = row.get('fy_year')
+            try:
+                year = f"{int(float(year_val))}"
+            except (ValueError, TypeError):
+                year = "N/A"
+                
             region = str(row.get('customer_regional_group', 'N/A'))[:10]
             html += f"        <tr><td>{i}</td><td>{contract}</td><td>{sku}</td><td>{stone}</td><td>{proc}</td><td>{dims}</td><td>{tlr_str}</td><td>{hs_str}</td><td>${price:,.2f}</td><td>{unit}</td><td>{year}</td><td>{region}</td></tr>\n"
         
