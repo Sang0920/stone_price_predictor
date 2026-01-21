@@ -2124,7 +2124,7 @@ def main():
                 # Show base estimation info below the card
                 with st.expander("📋 Chi tiết ước tính cơ bản", expanded=False):
                     st.markdown(f"- **Giá ước tính gốc:** ${estimation['estimated_price']:,.2f}")
-                    st.markdown(f"- **Khoảng giá gốc:** ${estimation['min_price']:,.2f} - ${estimation['max_price']:,.2f}")
+                    st.markdown(f"- **Khoảng giá gốc:** \\${estimation['min_price']:,.2f} - \\${estimation['max_price']:,.2f}")
                     st.markdown(f"- **Giá trung vị:** ${estimation['median_price']:,.2f}")
                     st.markdown(f"- **Số mẫu khớp:** {estimation['match_count']} / {estimation.get('total_matches', estimation['match_count'])}")
                     if estimation.get('years_used'):
@@ -2624,7 +2624,7 @@ def main():
                     # Show base estimation info in expander
                     with st.expander("📋 Chi tiết ước tính cơ bản (từ sản phẩm đã chọn)", expanded=False):
                         st.markdown(f"- **Giá ước tính gốc:** ${manual_estimation['estimated_price']:,.2f}")
-                        st.markdown(f"- **Khoảng giá gốc:** ${manual_estimation['min_price']:,.2f} - ${manual_estimation['max_price']:,.2f}")
+                        st.markdown(f"- **Khoảng giá gốc:** \\${manual_estimation['min_price']:,.2f} - \\${manual_estimation['max_price']:,.2f}")
                         st.markdown(f"- **Giá trung vị:** ${manual_estimation['median_price']:,.2f}")
                         st.markdown(f"- **Số mẫu được chọn:** {manual_count}")
                     
