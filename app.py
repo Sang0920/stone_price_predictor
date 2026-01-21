@@ -905,6 +905,29 @@ def generate_price_report(
     height = query_params.get('height', 0)
     query_volume = (length * width * height) / 1_000_000
     
+    # Define priority details
+    priority_details = {
+        'stone': priority_settings.get('stone_priority', 'N/A'),
+        'processing': priority_settings.get('processing_priority', 'N/A'),
+        'dimension': priority_settings.get('dimension_priority', 'N/A'),
+        'region': priority_settings.get('region_priority', 'N/A')
+    }
+    
+    # Generate detailed descriptions
+    stone_desc = "Exact Match (Cùng loại đá)" if 'Ưu tiên 1' in str(priority_details['stone']) else "Family Match (Cùng nhóm màu)"
+    proc_desc = "Exact Match (Cùng mã gia công)" if 'Ưu tiên 1' in str(priority_details['processing']) else "Group Match (Cùng nhóm gia công)"
+    region_desc = "Regional Group Match (Cùng khu vực)" if 'Ưu tiên 1' in str(priority_details['region']) else "Billing Country / All (Mở rộng thị trường)"
+    
+    dim_p = str(priority_details['dimension'])
+    if 'Ưu tiên 1' in dim_p:
+        dim_desc = "Exact Dimensions (Δ=0)"
+    elif 'Ưu tiên 2' in dim_p:
+        dim_desc = "Small Deviation (H±1, W±5, L±10 cm)"
+    elif 'Ưu tiên 3' in dim_p:
+        dim_desc = "Large Deviation (H±5, W±15, L±30 cm)"
+    else:
+        dim_desc = "Custom / Unknown"
+
     # Build HTML report
     html = f"""
 <!DOCTYPE html>
@@ -950,11 +973,11 @@ def generate_price_report(
     
     <h2>🎚️ Search Priority Settings (Mức độ ưu tiên tìm kiếm)</h2>
     <table>
-        <tr><th>Criterion</th><th>Priority Level</th></tr>
-        <tr><td>Stone Type (Loại đá)</td><td>{priority_settings.get('stone_priority', 'N/A')}</td></tr>
-        <tr><td>Processing (Gia công)</td><td>{priority_settings.get('processing_priority', 'N/A')}</td></tr>
-        <tr><td>Dimensions (Kích thước)</td><td>{priority_settings.get('dimension_priority', 'N/A')}</td></tr>
-        <tr><td>Market (Thị trường)</td><td>{priority_settings.get('region_priority', 'N/A')}</td></tr>
+        <tr><th>Criterion</th><th>Priority Level</th><th>Details</th></tr>
+        <tr><td>Stone Type (Loại đá)</td><td>{priority_details['stone']}</td><td>{stone_desc}</td></tr>
+        <tr><td>Processing (Gia công)</td><td>{priority_details['processing']}</td><td>{proc_desc}</td></tr>
+        <tr><td>Dimensions (Kích thước)</td><td>{priority_details['dimension']}</td><td>{dim_desc}</td></tr>
+        <tr><td>Market (Thị trường)</td><td>{priority_details['region']}</td><td>{region_desc}</td></tr>
     </table>
     
     <h2>💰 Price Estimation</h2>
@@ -995,10 +1018,11 @@ def generate_price_report(
     # Add matched products summary with ALL fields
     if len(matched_products) > 0:
         html += """
-    <h2>📦 Matched Products Used for Estimation</h2>
+    <h2>Products Used for Estimation</h2>
     <table>
         <tr>
             <th>#</th>
+            <th>Contract Name</th>
             <th>SKU</th>
             <th>Stone</th>
             <th>Processing</th>
@@ -1012,6 +1036,7 @@ def generate_price_report(
         </tr>
 """
         for i, (_, row) in enumerate(matched_products.head(20).iterrows(), 1):
+            contract = str(row.get('contract_name', 'N/A'))[:25]
             sku = str(row.get('sku', 'N/A'))[:15]
             stone = row.get('stone_color_type', 'N/A')
             proc = row.get('processing_code', 'N/A')
@@ -1024,10 +1049,10 @@ def generate_price_report(
             unit = row.get('charge_unit', 'N/A')
             year = row.get('fy_year', 'N/A')
             region = str(row.get('customer_regional_group', 'N/A'))[:10]
-            html += f"        <tr><td>{i}</td><td>{sku}</td><td>{stone}</td><td>{proc}</td><td>{dims}</td><td>{tlr_str}</td><td>{hs_str}</td><td>${price:,.2f}</td><td>{unit}</td><td>{year}</td><td>{region}</td></tr>\n"
+            html += f"        <tr><td>{i}</td><td>{contract}</td><td>{sku}</td><td>{stone}</td><td>{proc}</td><td>{dims}</td><td>{tlr_str}</td><td>{hs_str}</td><td>${price:,.2f}</td><td>{unit}</td><td>{year}</td><td>{region}</td></tr>\n"
         
         if len(matched_products) > 20:
-            html += f"        <tr><td colspan='11'>... and {len(matched_products) - 20} more products</td></tr>\n"
+            html += f"        <tr><td colspan='12'>... and {len(matched_products) - 20} more products</td></tr>\n"
         html += "    </table>\n"
     
     # Add step-by-step calculation
@@ -2138,11 +2163,19 @@ def main():
                             'adjusted_price': adjusted_price,
                         }
                 
+                # Filter matches for report if use_recent_only is selected
+                matches_for_report = matches.copy()
+                if use_recent_only and len(matches_for_report) > recent_count:
+                    if 'created_date' in matches_for_report.columns:
+                        # Ensure date conversion
+                        matches_for_report['created_date'] = pd.to_datetime(matches_for_report['created_date'], errors='coerce')
+                        matches_for_report = matches_for_report.sort_values('created_date', ascending=False).head(recent_count)
+
                 # Generate HTML report
                 report_html = generate_price_report(
                     query_params=query_params,
                     estimation=estimation,
-                    matched_products=matches,
+                    matched_products=matches_for_report,
                     customer_price_info=price_info,
                     yearly_adjustment=yearly_adj_info,
                     priority_settings={
