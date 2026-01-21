@@ -1738,6 +1738,13 @@ def main():
                     }[x],
                     index=0  # Default: Ưu tiên 1 (Đúng màu đá)
                 )
+                # Show stone priority info
+                if stone_priority == 'Ưu tiên 2':
+                    stone_family = STONE_FAMILY_MAP.get(stone_color, 'OTHER')
+                    st.caption(f"🪨 Tìm tất cả đá {stone_family}")
+                elif stone_priority == 'Ưu tiên 3':
+                    st.caption("🪨 Tìm tất cả loại đá")
+                
                 processing_priority = st.selectbox(
                     "Gia công",
                     options=['Ưu tiên 1', 'Ưu tiên 2', 'Ưu tiên 3'],
@@ -1748,6 +1755,13 @@ def main():
                     }[x],
                     index=1  # Default: Ưu tiên 2
                 )
+                # Show processing priority info
+                if processing_priority == 'Ưu tiên 2':
+                    proc_group = PROCESSING_CODE_TO_GROUP.get(processing_code, 'GIA_CONG_MAY')
+                    group_codes = PROCESSING_GROUPS.get(proc_group, [processing_code])
+                    st.caption(f"⚙️ Tìm nhóm: {', '.join(group_codes)}")
+                elif processing_priority == 'Ưu tiên 3':
+                    st.caption("⚙️ Tìm tất cả loại gia công")
                 # Show Processing Group dropdown when Priority 2 is selected
                 selected_processing_group = None
                 if processing_priority == 'Ưu tiên 2':
@@ -1769,6 +1783,11 @@ def main():
                     options=list(DIMENSION_PRIORITY_LEVELS.keys()),
                     index=0  # Default: Ưu tiên 1 (Đúng kích thước)
                 )
+                # Show tolerance info when not using exact match
+                if dimension_priority != 'Ưu tiên 1 - Đúng kích thước':
+                    tol = DIMENSION_PRIORITY_LEVELS[dimension_priority]
+                    st.caption(f"📏 Cho phép sai lệch: Cao ±{tol['height']}cm, Rộng ±{tol['width']}cm, Dài ±{tol['length']}cm")
+                
                 # Show "unlimited length" checkbox when Priority 3 is selected
                 no_length_limit = False
                 if 'Ưu tiên 3' in dimension_priority:
