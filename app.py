@@ -1788,23 +1788,23 @@ def main():
                     }[x],
                     index=2  # Default: Ưu tiên 3 
                 )
-                
+
                 # Dynamic Market selector based on region_priority
                 billing_country_selected = None
-                regional_group_selected = customer_regional_group  # Use the existing regional group selection
-                
                 if region_priority == 'Ưu tiên 1':
                     # Get unique billing countries from data
-                    billing_countries = ['']
+                    billing_countries = []
                     if st.session_state.data is not None and 'billing_country' in st.session_state.data.columns:
                         unique_countries = st.session_state.data['billing_country'].dropna().unique().tolist()
-                        billing_countries = [''] + sorted([c for c in unique_countries if c])
+                        billing_countries = sorted([c for c in unique_countries if c])
+                    
                     billing_country_selected = st.selectbox(
                         "Chọn nước (Billing Country)",
                         options=billing_countries,
-                        format_func=lambda x: 'Tất cả' if x == '' else x,
                         help="Lọc theo quốc gia trong địa chỉ thanh toán"
                     )
+            
+            regional_group_selected = customer_regional_group  # Use the existing regional group selection
             
             st.divider()
             st.markdown("#### 📅 Cài đặt tính toán giá")
@@ -1828,7 +1828,7 @@ def main():
             apply_yearly_adjustment = st.checkbox(
                 "Áp dụng điều chỉnh giá theo năm",
                 value=True,
-                help="Tỷ lệ tăng giá hàng năm do chi phí nguyên vật liệu và nhân công (thường 3-5%) hoặc điều chỉnh theo lạm phát. Xem thêm [tại đây](https://www.tradingview.com/markets/world-economy/charts-global-trends/)"
+                help="Tỷ lệ tăng giá hàng năm do chi phí nguyên vật liệu và nhân công (thường 3-5%) hoặc điều chỉnh theo lạm phát. Xem thông tin lạm phát theo quốc gia [tại đây](https://www.tradingview.com/markets/world-economy/charts-global-trends/)."
             )
             yearly_increase_pct = st.slider(
                 "Tỷ lệ tăng giá hàng năm (%)",
@@ -1919,13 +1919,6 @@ def main():
                 conf_color = confidence_colors.get(estimation['confidence'], '#808080')
                 conf_label = confidence_labels.get(estimation['confidence'], 'N/A')
                 
-                st.markdown(f"""
-                <div style="background-color: {conf_color}; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;">
-                    <h3 style="color: white; margin: 0;">Độ tin cậy: {conf_label}</h3>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Main estimated price
                 st.metric(f"💰 Giá ước tính ({charge_unit})", f"${estimation['estimated_price']:,.2f}")
                 
                 # Apply yearly price adjustment if enabled
@@ -1940,12 +1933,22 @@ def main():
                         adjusted_min = estimation['min_price'] * adjustment_factor
                         adjusted_max = estimation['max_price'] * adjustment_factor
                         
-                        st.markdown(f"**💵 Giá điều chỉnh ({current_year}):** **\\${adjusted_price:,.2f}** (+{yearly_increase_pct:.1f}% × {years_diff} năm)")
+                        st.markdown(f"""
+                        <div style="background-color: {conf_color}; padding: 20px; border-radius: 10px; margin-bottom: 10px;">
+                            <p style="color: white; margin: 0; font-size: 1.1em; font-weight: bold;">💵 Giá điều chỉnh ({current_year}):</p>
+                            <h1 style="color: white; margin: 5px 0; font-size: 3.5em;">${adjusted_price:,.2f}</h1>
+                            <p style="color: white; margin: 0; font-style: italic;">(+{yearly_increase_pct:.1f}% × {years_diff} năm)</p>
+                            <hr style="margin: 10px 0; border-top: 1px solid rgba(255,255,255,0.3);">
+                            <p style="color: white; margin: 0;">Độ tin cậy: {conf_label}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
                         st.markdown(f"Khoảng giá điều chỉnh: **\\${adjusted_min:,.2f}** – **\\${adjusted_max:,.2f}**")
                     else:
+                        st.markdown(f"**Độ tin cậy:** <span style='color:{conf_color}; font-weight:bold'>{conf_label}</span>", unsafe_allow_html=True)
                         st.markdown(f"Khoảng giá thực tế: **\\${estimation['min_price']:,.2f}** – **\\${estimation['max_price']:,.2f}**")
                 else:
                     # Price range (no adjustment)
+                    st.markdown(f"**Độ tin cậy:** <span style='color:{conf_color}; font-weight:bold'>{conf_label}</span>", unsafe_allow_html=True)
                     st.markdown(f"Khoảng giá thực tế: **\\${estimation['min_price']:,.2f}** – **\\${estimation['max_price']:,.2f}**")
                 
                 st.markdown(f"**Giá trung vị:** ${estimation['median_price']:,.2f}")
@@ -2115,13 +2118,6 @@ def main():
                 conf_color = confidence_colors.get(estimation.get('confidence', ''), '#808080')
                 conf_label = confidence_labels.get(estimation.get('confidence', ''), 'N/A')
                 
-                st.markdown(f"""
-                <div style="background-color: {conf_color}; padding: 15px; border-radius: 10px; text-align: center; margin-bottom: 20px;">
-                    <h3 style="color: white; margin: 0;">Độ tin cậy: {conf_label}</h3>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Main estimated price
                 cached_charge_unit = query_params.get('charge_unit', charge_unit)
                 st.metric(f"💰 Giá ước tính ({cached_charge_unit})", f"${estimation['estimated_price']:,.2f}")
                 
@@ -2136,11 +2132,21 @@ def main():
                         adjusted_min = estimation['min_price'] * adjustment_factor
                         adjusted_max = estimation['max_price'] * adjustment_factor
                         
-                        st.markdown(f"**💵 Giá điều chỉnh ({current_year}):** **\\${adjusted_price:,.2f}** (+{yearly_increase_pct:.1f}% × {years_diff} năm)")
+                        st.markdown(f"""
+                        <div style="background-color: {conf_color}; padding: 20px; border-radius: 10px; margin-bottom: 10px;">
+                            <p style="color: white; margin: 0; font-size: 1.1em; font-weight: bold;">💵 Giá điều chỉnh ({current_year}):</p>
+                            <h1 style="color: white; margin: 5px 0; font-size: 3.5em;">${adjusted_price:,.2f}</h1>
+                            <p style="color: white; margin: 0; font-style: italic;">(+{yearly_increase_pct:.1f}% × {years_diff} năm)</p>
+                            <hr style="margin: 10px 0; border-top: 1px solid rgba(255,255,255,0.3);">
+                            <p style="color: white; margin: 0;">Độ tin cậy: {conf_label}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
                         st.markdown(f"Khoảng giá điều chỉnh: **\\${adjusted_min:,.2f}** – **\\${adjusted_max:,.2f}**")
                     else:
+                        st.markdown(f"**Độ tin cậy:** <span style='color:{conf_color}; font-weight:bold'>{conf_label}</span>", unsafe_allow_html=True)
                         st.markdown(f"Khoảng giá thực tế: **\\${estimation['min_price']:,.2f}** – **\\${estimation['max_price']:,.2f}**")
                 else:
+                    st.markdown(f"**Độ tin cậy:** <span style='color:{conf_color}; font-weight:bold'>{conf_label}</span>", unsafe_allow_html=True)
                     st.markdown(f"Khoảng giá thực tế: **\\${estimation['min_price']:,.2f}** – **\\${estimation['max_price']:,.2f}**")
                 
                 st.markdown(f"**Giá trung vị:** ${estimation.get('median_price', estimation['estimated_price']):,.2f}")
@@ -2295,10 +2301,8 @@ def main():
                 with col_recalc:
                     recalc_btn = st.button("🔄 Tính lại giá từ sản phẩm đã chọn", disabled=(selected_count < 3))
                 
-                # Recalculate price from selected records
+                # Recalculate price from selected records with volume normalization
                 if recalc_btn and selected_count >= 3:
-                    selected_prices = selected_rows['sales_price']
-                    
                     # Calculate average FY year from selected products for yearly adjustment
                     avg_fy_year = None
                     if 'fy_year' in selected_rows.columns:
@@ -2306,18 +2310,99 @@ def main():
                         if len(fy_years) > 0:
                             avg_fy_year = int(fy_years.mean())
                     
-                    manual_estimation = {
-                        'estimated_price': selected_prices.mean(),
-                        'min_price': selected_prices.min(),
-                        'max_price': selected_prices.max(),
-                        'median_price': selected_prices.median(),
+                    # === Volume-normalized pricing (same logic as estimate_price) ===
+                    # Convert all selected product prices to USD/M3 first
+                    prices_m3 = []
+                    for idx, row in selected_rows.iterrows():
+                        price = row['sales_price']
+                        unit = row.get('charge_unit', 'USD/M3')
+                        match_length = row.get('length_cm', 10)
+                        match_width = row.get('width_cm', 10)
+                        match_height = row.get('height_cm', 3)
+                        match_stone = row.get('stone_color_type', stone_color or 'ABSOLUTE BASALT')
+                        match_proc = row.get('processing_code', processing_code)
+                        
+                        # Get TLR and HS for this product
+                        tlr = get_tlr(match_stone, match_proc)
+                        hs = get_hs_factor((match_length, match_width, match_height), match_proc)
+                        
+                        # Convert to USD/M3
+                        price_m3 = convert_price(
+                            price, unit, 'USD/M3',
+                            height_cm=match_height,
+                            length_cm=match_length,
+                            width_cm=match_width,
+                            tlr=tlr,
+                            hs=hs
+                        )
+                        prices_m3.append(price_m3)
+                    
+                    prices_m3 = pd.Series(prices_m3, index=selected_rows.index)
+                    
+                    # Calculate weighted average in USD/M3
+                    avg_price_m3 = prices_m3.mean()
+                    min_price_m3 = prices_m3.min()
+                    max_price_m3 = prices_m3.max()
+                    median_price_m3 = prices_m3.median()
+                    
+                    # Convert from USD/M3 to target unit using QUERY dimensions
+                    query_tlr = get_tlr(stone_color or 'ABSOLUTE BASALT', processing_code)
+                    query_hs = get_hs_factor((length, width, height), processing_code)
+                    
+                    estimated_price = convert_price(
+                        avg_price_m3, 'USD/M3', charge_unit,
+                        height_cm=height,
+                        length_cm=length,
+                        width_cm=width,
+                        tlr=query_tlr,
+                        hs=query_hs
+                    )
+                    min_price = convert_price(
+                        min_price_m3, 'USD/M3', charge_unit,
+                        height_cm=height, length_cm=length, width_cm=width,
+                        tlr=query_tlr, hs=query_hs
+                    )
+                    max_price = convert_price(
+                        max_price_m3, 'USD/M3', charge_unit,
+                        height_cm=height, length_cm=length, width_cm=width,
+                        tlr=query_tlr, hs=query_hs
+                    )
+                    median_price = convert_price(
+                        median_price_m3, 'USD/M3', charge_unit,
+                        height_cm=height, length_cm=length, width_cm=width,
+                        tlr=query_tlr, hs=query_hs
+                    )
+                    
+                    # Store manual estimation in session state
+                    st.session_state.manual_estimation = {
+                        'estimated_price': estimated_price,
+                        'min_price': min_price,
+                        'max_price': max_price,
+                        'median_price': median_price,
                         'match_count': selected_count,
                         'avg_fy_year': avg_fy_year,
                         'total_matches': len(matches),
+                        'price_m3': avg_price_m3,
                     }
+                
+                # Show results if we have a valid manual estimation from this session (even if button wasn't just clicked)
+                # We check if match_count matches to ensure it corresponds to the current selection approximately
+                if 'manual_estimation' in st.session_state and st.session_state.manual_estimation is not None:
+                    manual_estimation = st.session_state.manual_estimation
                     
                     st.divider()
                     st.markdown("#### 📊 Kết quả tính giá từ sản phẩm đã chọn")
+                    
+                    # Confidence for manual selection (based on count)
+                    manual_count = manual_estimation['match_count']
+                    if manual_count >= 10:
+                        conf_color = '#6bcb77' # High
+                    elif manual_count >= 5:
+                        conf_color = '#ffd93d' # Medium
+                    elif manual_count >= 2:
+                        conf_color = '#ff6b6b' # Low
+                    else:
+                        conf_color = '#9e7cc1' # Very low
                     
                     # Main estimated price
                     st.metric(f"💰 Giá trung bình ({charge_unit})", f"${manual_estimation['estimated_price']:,.2f}")
@@ -2332,13 +2417,21 @@ def main():
                             adjusted_min = manual_estimation['min_price'] * adjustment_factor
                             adjusted_max = manual_estimation['max_price'] * adjustment_factor
                             
-                            st.markdown(f"**💵 Giá điều chỉnh ({current_year}):** **\\${adjusted_price:,.2f}** (+{yearly_increase_pct:.1f}% × {years_diff} năm)")
+                            st.markdown(f"""
+                            <div style="background-color: {conf_color}; padding: 20px; border-radius: 10px; margin-bottom: 10px;">
+                                <p style="color: white; margin: 0; font-size: 1.1em; font-weight: bold;">💵 Giá điều chỉnh ({current_year}):</p>
+                                <h1 style="color: white; margin: 5px 0; font-size: 3.5em;">${adjusted_price:,.2f}</h1>
+                                <p style="color: white; margin: 0; font-style: italic;">(+{yearly_increase_pct:.1f}% × {years_diff} năm)</p>
+                                <hr style="margin: 10px 0; border-top: 1px solid rgba(255,255,255,0.3);">
+                                <p style="color: white; margin: 0;">💰 Giá ước tính: ${manual_estimation['estimated_price']:,.2f}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
                             st.markdown(f"Khoảng giá điều chỉnh: **\\${adjusted_min:,.2f}** – **\\${adjusted_max:,.2f}**")
                         else:
                             st.markdown(f"Khoảng giá thực tế: **\\${manual_estimation['min_price']:,.2f}** – **\\${manual_estimation['max_price']:,.2f}**")
                     else:
                         st.markdown(f"Khoảng giá thực tế: **\\${manual_estimation['min_price']:,.2f}** – **\\${manual_estimation['max_price']:,.2f}**")
-                    
+                        
                     st.markdown(f"**Giá trung vị:** ${manual_estimation['median_price']:,.2f}")
                     st.markdown(f"**Số mẫu:** {manual_estimation['match_count']} sản phẩm được chọn")
                     
