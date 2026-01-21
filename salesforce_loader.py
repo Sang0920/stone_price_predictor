@@ -378,6 +378,8 @@ class SalesforceDataLoader:
             Delivery_Date__c,
             Product_Discription__c,
             Product__r.Product_description_in_Vietnamese__c,
+            Product__r.specific_gravity__c,
+            Product__r.Bottom_cladding_coefficient__c,
             Length__c,
             Width__c,
             Height__c,
@@ -458,6 +460,8 @@ class SalesforceDataLoader:
                 "fy_year": fy_year,
                 "product_description": r.get("Product_Discription__c"),
                 "product_description_vn": product.get("Product_description_in_Vietnamese__c"),
+                "specific_gravity": product.get("specific_gravity__c"),  # TLR from Salesforce
+                "hs_coefficient": product.get("Bottom_cladding_coefficient__c"),  # HS from Salesforce
                 "length_cm": length,
                 "width_cm": width,
                 "height_cm": height,
