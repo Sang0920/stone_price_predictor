@@ -829,6 +829,920 @@ def get_segment_color(segment: str) -> str:
     }
     return colors.get(segment, '#808080')
 
+
+# ============ 3D Visualization Helpers ============
+def get_processing_color(processing_code: str) -> str:
+    """
+    Get color for a processing code for 3D visualization.
+    Colors are distinct for different processing types.
+    """
+    processing_colors = {
+        # Hand processing - Earthy tones
+        'CTA': '#8B4513',  # Saddle Brown - Chẻ tay tự nhiên
+        'TLO': '#A0522D',  # Sienna - Tự nhiên lồi
+        'TDE': '#CD853F',  # Peru - Tước đẽo
+        
+        # Machine + Hand - Mixed tones
+        'CUA': '#708090',  # Slate Gray - Cưa
+        'CLO': '#778899',  # Light Slate Gray - Cưa lột
+        'QME': '#696969',  # Dim Gray - Quay mẻ
+        'GCT': '#808080',  # Gray - Giả cổ tay
+        
+        # Machine processing - Cool tones
+        'DOT': '#FF6347',  # Tomato - Đốt (Flamed)
+        'DOC': '#FF4500',  # Orange Red - Đốt chải
+        'DOX': '#DC143C',  # Crimson - Đốt xịt nước
+        'HON': '#4682B4',  # Steel Blue - Hon/Mài mịn
+        'BON': '#1E90FF',  # Dodger Blue - Bóng
+        'BAM': '#2F4F4F',  # Dark Slate Gray - Băm
+        'GCR': '#556B2F',  # Dark Olive Green - Giả cổ rung
+        
+        # High-end machine - Premium tones
+        'MGI': '#9370DB',  # Medium Purple - Mài giấy
+        'PCA': '#DDA0DD',  # Plum - Phun cát
+    }
+    return processing_colors.get(processing_code, '#CCCCCC')
+
+
+def generate_3d_cuboid_html(length_cm: float, width_cm: float, height_cm: float,
+                             surface_processing: Dict[str, str]) -> str:
+    """
+    Generate pure CSS 3D cuboid visualization.
+    Uses CSS 3D transforms for reliable rendering without external dependencies.
+    """
+    # Get colors for each face
+    proc_lookup = {code: (eng, vn) for code, eng, vn in PROCESSING_CODES}
+    
+    face_labels_vn = {
+        'top': 'Trên', 'bottom': 'Đáy', 'front': 'Trước',
+        'back': 'Sau', 'left': 'Trái', 'right': 'Phải',
+    }
+    
+    face_colors = {}
+    face_info = {}
+    for face in ['top', 'bottom', 'front', 'back', 'left', 'right']:
+        proc = surface_processing.get(face, 'CUA')
+        face_colors[face] = get_processing_color(proc)
+        proc_name = proc_lookup.get(proc, ('Unknown', 'Không xác định'))
+        face_info[face] = f"{face_labels_vn[face]}: {proc} - {proc_name[1]}"
+    
+    # Build legend HTML
+    legend_items = []
+    unique_procs = list(set(surface_processing.values()))
+    for proc in unique_procs:
+        color = get_processing_color(proc)
+        proc_name = proc_lookup.get(proc, ('Unknown', 'Không xác định'))
+        legend_items.append(f'''
+            <div style="display:flex;align-items:center;margin:4px 0;">
+                <span style="width:18px;height:18px;background:{color};display:inline-block;margin-right:8px;border:2px solid #333;border-radius:3px;"></span>
+                <span style="font-size:13px;"><b>{proc}</b> - {proc_name[1]}</span>
+            </div>
+        ''')
+    legend_html = ''.join(legend_items)
+    
+    # Scale dimensions for CSS (max size ~200px for display)
+    max_dim = max(length_cm, width_cm, height_cm)
+    scale = 180 / max_dim
+    w = int(length_cm * scale)  # CSS width (length)
+    h = int(height_cm * scale)  # CSS height (height)
+    d = int(width_cm * scale)   # CSS depth (width)
+    
+    html = f'''
+    <style>
+    .scene {{
+        width: 100%;
+        height: 380px;
+        perspective: 800px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        border-radius: 12px;
+        position: relative;
+    }}
+    .cube-container {{
+        width: {w}px;
+        height: {h}px;
+        position: relative;
+        transform-style: preserve-3d;
+        transform: rotateX(-25deg) rotateY(-35deg);
+        animation: rotate 20s infinite linear;
+        animation-play-state: running;
+    }}
+    .cube-container:hover {{
+        animation-play-state: paused;
+    }}
+    @keyframes rotate {{
+        from {{ transform: rotateX(-25deg) rotateY(-35deg); }}
+        to {{ transform: rotateX(-25deg) rotateY(325deg); }}
+    }}
+    .face {{
+        position: absolute;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 14px;
+        font-weight: bold;
+        color: white;
+        text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+        border: 2px solid rgba(0,0,0,0.5);
+        box-sizing: border-box;
+        transition: all 0.3s;
+        cursor: pointer;
+    }}
+    .face:hover {{
+        filter: brightness(1.2);
+        z-index: 100;
+    }}
+    .face-front {{
+        width: {w}px; height: {h}px;
+        background: {face_colors['front']};
+        transform: translateZ({d//2}px);
+    }}
+    .face-back {{
+        width: {w}px; height: {h}px;
+        background: {face_colors['back']};
+        transform: rotateY(180deg) translateZ({d//2}px);
+    }}
+    .face-right {{
+        width: {d}px; height: {h}px;
+        background: {face_colors['right']};
+        transform: rotateY(90deg) translateZ({w//2}px);
+    }}
+    .face-left {{
+        width: {d}px; height: {h}px;
+        background: {face_colors['left']};
+        transform: rotateY(-90deg) translateZ({w//2}px);
+    }}
+    .face-top {{
+        width: {w}px; height: {d}px;
+        background: {face_colors['top']};
+        transform: rotateX(90deg) translateZ({h//2}px);
+    }}
+    .face-bottom {{
+        width: {w}px; height: {d}px;
+        background: {face_colors['bottom']};
+        transform: rotateX(-90deg) translateZ({h//2}px);
+    }}
+    .info-panel {{
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        background: rgba(255,255,255,0.95);
+        padding: 12px 15px;
+        border-radius: 10px;
+        z-index: 10;
+        max-width: 220px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    }}
+    .info-title {{
+        font-weight: bold;
+        margin-bottom: 6px;
+        font-size: 14px;
+        color: #333;
+    }}
+    .info-text {{
+        font-size: 12px;
+        color: #555;
+    }}
+    .hint {{
+        position: absolute;
+        bottom: 12px;
+        right: 12px;
+        background: rgba(255,255,255,0.85);
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 11px;
+        color: #666;
+    }}
+    </style>
+    <div class="scene">
+        <div class="info-panel">
+            <div class="info-title">📦 Kích thước</div>
+            <div class="info-text">Dài: {length_cm}cm × Rộng: {width_cm}cm × Cao: {height_cm}cm</div>
+            <hr style="margin:10px 0;border:none;border-top:1px solid #ddd;">
+            <div class="info-title">🎨 Gia công bề mặt</div>
+            {legend_html}
+        </div>
+        <div class="cube-container">
+            <div class="face face-front" title="{face_info['front']}">Trước<br>{surface_processing.get('front', 'CUA')}</div>
+            <div class="face face-back" title="{face_info['back']}">Sau<br>{surface_processing.get('back', 'CUA')}</div>
+            <div class="face face-right" title="{face_info['right']}">Phải<br>{surface_processing.get('right', 'CUA')}</div>
+            <div class="face face-left" title="{face_info['left']}">Trái<br>{surface_processing.get('left', 'CUA')}</div>
+            <div class="face face-top" title="{face_info['top']}">Trên<br>{surface_processing.get('top', 'DOT')}</div>
+            <div class="face face-bottom" title="{face_info['bottom']}">Đáy<br>{surface_processing.get('bottom', 'CUA')}</div>
+        </div>
+        <div class="hint">🔄 Tự động xoay | Di chuột để dừng</div>
+    </div>
+    '''
+    
+    return html
+
+
+def get_texture_for_processing(processing_code: str) -> str:
+    """Map processing code to texture filename."""
+    texture_map = {
+        # Flamed textures
+        'DOT': 'flamed.png',
+        'DOX': 'flamed.png',
+        'DOC': 'flamed.png',
+        # Polished textures
+        'BON': 'polished.png',
+        'DAB': 'polished.png',
+        # Sawn textures
+        'CUA': 'sawn.png',
+        'CLO': 'sawn.png',
+        'CUL': 'sawn.png',
+        # Brushed textures
+        'CHA': 'brushed.png',
+        'LEC': 'brushed.png',
+        # Honed textures
+        'MAI': 'honed.png',
+        'TLO': 'honed.png',
+        'CTA': 'honed.png',
+    }
+    return texture_map.get(processing_code, 'sawn.png')
+
+
+def generate_3d_textured_cuboid(length_cm: float, width_cm: float, height_cm: float,
+                                 surface_processing: Dict[str, str]) -> str:
+    """
+    Generate Three.js 3D viewer with per-face textures based on processing codes.
+    Uses base64 data URLs for reliable texture loading in Streamlit.
+    """
+    import base64
+    import os
+    
+    # Get texture base64 data for each face
+    texture_dir = os.path.join(os.path.dirname(__file__), 'assets', 'textures')
+    
+    face_textures = {}
+    for face in ['top', 'bottom', 'front', 'back', 'left', 'right']:
+        proc_code = surface_processing.get(face, 'CUA')
+        texture_file = get_texture_for_processing(proc_code)
+        texture_path = os.path.join(texture_dir, texture_file)
+        
+        try:
+            with open(texture_path, 'rb') as f:
+                img_data = base64.b64encode(f.read()).decode('utf-8')
+                face_textures[face] = f"data:image/png;base64,{img_data}"
+        except:
+            # Fallback to color if texture not found
+            face_textures[face] = None
+    
+    # Get processing lookup for labels
+    proc_lookup = {code: (eng, vn) for code, eng, vn in PROCESSING_CODES}
+    face_labels_vn = {
+        'top': 'Trên', 'bottom': 'Đáy', 'front': 'Trước',
+        'back': 'Sau', 'left': 'Trái', 'right': 'Phải',
+    }
+    
+    # Build legend HTML
+    legend_items = []
+    unique_procs = list(set(surface_processing.values()))
+    for proc in unique_procs:
+        color = get_processing_color(proc)
+        proc_name = proc_lookup.get(proc, ('Unknown', 'Không xác định'))
+        texture_name = get_texture_for_processing(proc).replace('.png', '').capitalize()
+        legend_items.append(f'''
+            <div style="display:flex;align-items:center;margin:4px 0;">
+                <span style="width:18px;height:18px;background:{color};display:inline-block;margin-right:8px;border:2px solid #333;border-radius:3px;"></span>
+                <span style="font-size:12px;"><b>{proc}</b> - {proc_name[1]} ({texture_name})</span>
+            </div>
+        ''')
+    legend_html = ''.join(legend_items)
+    
+    # Three.js HTML with textures
+    html = f'''
+    <div id="threejs-container" style="width:100%;height:400px;position:relative;background:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);border-radius:12px;overflow:hidden;">
+        <div style="position:absolute;top:10px;left:10px;background:rgba(255,255,255,0.95);padding:10px;border-radius:8px;z-index:10;max-width:200px;">
+            <div style="font-weight:bold;margin-bottom:5px;font-size:13px;">📦 Kích thước</div>
+            <div style="font-size:12px;">Dài: {length_cm}cm × Rộng: {width_cm}cm × Cao: {height_cm}cm</div>
+            <hr style="margin:8px 0;border:none;border-top:1px solid #ddd;">
+            <div style="font-weight:bold;margin-bottom:5px;font-size:13px;">🎨 Gia công</div>
+            {legend_html}
+        </div>
+        <div style="position:absolute;bottom:10px;right:10px;background:rgba(255,255,255,0.8);padding:5px 10px;border-radius:5px;font-size:11px;z-index:10;">
+            🖱️ Kéo để xoay | Cuộn để zoom
+        </div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+    (function() {{
+        const container = document.getElementById('threejs-container');
+        const width = container.clientWidth;
+        const height = 400;
+        
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({{ antialias: true, alpha: true }});
+        renderer.setSize(width, height);
+        renderer.setClearColor(0x000000, 0);
+        container.appendChild(renderer.domElement);
+        
+        // Dimensions
+        const l = {length_cm};
+        const w = {width_cm};
+        const h = {height_cm};
+        
+        // Texture URLs
+        const textureUrls = {{
+            right: "{face_textures.get('right', '')}",
+            left: "{face_textures.get('left', '')}",
+            top: "{face_textures.get('top', '')}",
+            bottom: "{face_textures.get('bottom', '')}",
+            front: "{face_textures.get('front', '')}",
+            back: "{face_textures.get('back', '')}"
+        }};
+        
+        // Fallback colors
+        const colors = {{
+            right: "{get_processing_color(surface_processing.get('right', 'CUA'))}",
+            left: "{get_processing_color(surface_processing.get('left', 'CUA'))}",
+            top: "{get_processing_color(surface_processing.get('top', 'DOT'))}",
+            bottom: "{get_processing_color(surface_processing.get('bottom', 'CUA'))}",
+            front: "{get_processing_color(surface_processing.get('front', 'CUA'))}",
+            back: "{get_processing_color(surface_processing.get('back', 'CUA'))}"
+        }};
+        
+        // Create materials with textures
+        const loader = new THREE.TextureLoader();
+        const materials = [];
+        const faces = ['right', 'left', 'top', 'bottom', 'front', 'back'];
+        
+        faces.forEach(face => {{
+            if (textureUrls[face] && textureUrls[face].startsWith('data:')) {{
+                const texture = loader.load(textureUrls[face]);
+                texture.wrapS = THREE.RepeatWrapping;
+                texture.wrapT = THREE.RepeatWrapping;
+                materials.push(new THREE.MeshStandardMaterial({{
+                    map: texture,
+                    roughness: 0.7,
+                    metalness: 0.1
+                }}));
+            }} else {{
+                materials.push(new THREE.MeshStandardMaterial({{
+                    color: colors[face],
+                    roughness: 0.7,
+                    metalness: 0.1
+                }}));
+            }}
+        }});
+        
+        // Create box geometry
+        const geometry = new THREE.BoxGeometry(l, h, w);
+        const cube = new THREE.Mesh(geometry, materials);
+        cube.position.set(0, 0, 0);
+        scene.add(cube);
+        
+        // Add edges for visibility
+        const edges = new THREE.EdgesGeometry(geometry);
+        const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({{ color: 0x000000 }}));
+        line.position.copy(cube.position);
+        scene.add(line);
+        
+        // Lighting - even on all sides
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        
+        const lights = [
+            {{ pos: [100, 100, 100], intensity: 0.4 }},
+            {{ pos: [-100, 100, -100], intensity: 0.3 }},
+            {{ pos: [100, -100, -100], intensity: 0.3 }},
+            {{ pos: [-100, -100, 100], intensity: 0.3 }}
+        ];
+        
+        lights.forEach(l => {{
+            const light = new THREE.DirectionalLight(0xffffff, l.intensity);
+            light.position.set(l.pos[0], l.pos[1], l.pos[2]);
+            scene.add(light);
+        }});
+        
+        // Camera position
+        const maxDim = Math.max(l, w, h);
+        const distance = maxDim * 2.5;
+        camera.position.set(distance, distance * 0.8, distance);
+        camera.lookAt(0, 0, 0);
+        
+        // Orbit controls
+        let isDragging = false;
+        let prevMouse = {{ x: 0, y: 0 }};
+        let rotation = {{ x: -0.3, y: 0.5 }};
+        let autoRotate = true;
+        
+        container.addEventListener('mousedown', (e) => {{
+            isDragging = true;
+            autoRotate = false;
+            prevMouse = {{ x: e.clientX, y: e.clientY }};
+        }});
+        
+        container.addEventListener('mousemove', (e) => {{
+            if (isDragging) {{
+                rotation.y += (e.clientX - prevMouse.x) * 0.01;
+                rotation.x += (e.clientY - prevMouse.y) * 0.01;
+                rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, rotation.x));
+                prevMouse = {{ x: e.clientX, y: e.clientY }};
+            }}
+        }});
+        
+        container.addEventListener('mouseup', () => {{ isDragging = false; }});
+        container.addEventListener('mouseleave', () => {{ isDragging = false; }});
+        
+        container.addEventListener('wheel', (e) => {{
+            e.preventDefault();
+            const zoom = 1 + e.deltaY * 0.001;
+            camera.position.multiplyScalar(zoom);
+        }});
+        
+        // Animation
+        function animate() {{
+            requestAnimationFrame(animate);
+            
+            if (autoRotate) {{
+                rotation.y += 0.005;
+            }}
+            
+            cube.rotation.x = rotation.x;
+            cube.rotation.y = rotation.y;
+            line.rotation.x = rotation.x;
+            line.rotation.y = rotation.y;
+            
+            renderer.render(scene, camera);
+        }}
+        animate();
+    }})();
+    </script>
+    '''
+    
+    return html
+
+
+def generate_cuboid_stl(length_cm: float, width_cm: float, height_cm: float) -> bytes:
+    """
+    Generate ASCII STL content for a cuboid mesh.
+    
+    Args:
+        length_cm: Length in cm (X-axis)
+        width_cm: Width in cm (Y-axis)
+        height_cm: Height in cm (Z-axis)
+    
+    Returns:
+        bytes: STL file content
+    """
+    # Vertices of the cuboid
+    l, w, h = length_cm, width_cm, height_cm
+    
+    # 12 triangles (2 per face, 6 faces)
+    triangles = [
+        # Bottom face (z=0) - normal (0,0,-1)
+        ((0,0,0), (l,w,0), (l,0,0), (0,0,-1)),
+        ((0,0,0), (0,w,0), (l,w,0), (0,0,-1)),
+        # Top face (z=h) - normal (0,0,1)
+        ((0,0,h), (l,0,h), (l,w,h), (0,0,1)),
+        ((0,0,h), (l,w,h), (0,w,h), (0,0,1)),
+        # Front face (y=0) - normal (0,-1,0)
+        ((0,0,0), (l,0,0), (l,0,h), (0,-1,0)),
+        ((0,0,0), (l,0,h), (0,0,h), (0,-1,0)),
+        # Back face (y=w) - normal (0,1,0)
+        ((0,w,0), (l,w,h), (l,w,0), (0,1,0)),
+        ((0,w,0), (0,w,h), (l,w,h), (0,1,0)),
+        # Left face (x=0) - normal (-1,0,0)
+        ((0,0,0), (0,0,h), (0,w,h), (-1,0,0)),
+        ((0,0,0), (0,w,h), (0,w,0), (-1,0,0)),
+        # Right face (x=l) - normal (1,0,0)
+        ((l,0,0), (l,w,0), (l,w,h), (1,0,0)),
+        ((l,0,0), (l,w,h), (l,0,h), (1,0,0)),
+    ]
+    
+    # Generate ASCII STL
+    stl_lines = ["solid cuboid"]
+    for v1, v2, v3, normal in triangles:
+        stl_lines.append(f"  facet normal {normal[0]} {normal[1]} {normal[2]}")
+        stl_lines.append("    outer loop")
+        stl_lines.append(f"      vertex {v1[0]} {v1[1]} {v1[2]}")
+        stl_lines.append(f"      vertex {v2[0]} {v2[1]} {v2[2]}")
+        stl_lines.append(f"      vertex {v3[0]} {v3[1]} {v3[2]}")
+        stl_lines.append("    endloop")
+        stl_lines.append("  endfacet")
+    stl_lines.append("endsolid cuboid")
+    
+    return "\n".join(stl_lines).encode('ascii')
+
+
+def generate_cuboid_3mf(length_cm: float, width_cm: float, height_cm: float,
+                         surface_processing: Dict[str, str]) -> bytes:
+    """
+    Generate 3MF file content for a cuboid with per-face colors.
+    3MF is a ZIP-based format that embeds geometry and materials in one file.
+    
+    Args:
+        length_cm, width_cm, height_cm: Dimensions in cm
+        surface_processing: Dict with processing codes for each face
+    
+    Returns:
+        bytes: 3MF file content (ZIP archive)
+    """
+    import zipfile
+    import io
+    
+    l, w, h = length_cm, width_cm, height_cm
+    
+    # 8 vertices of the cuboid
+    vertices = [
+        (0, 0, 0),   # 0
+        (l, 0, 0),   # 1
+        (l, w, 0),   # 2
+        (0, w, 0),   # 3
+        (0, 0, h),   # 4
+        (l, 0, h),   # 5
+        (l, w, h),   # 6
+        (0, w, h),   # 7
+    ]
+    
+    # Triangles for each face (vertex indices) with their processing codes
+    face_triangles = {
+        'bottom': [(0, 2, 1), (0, 3, 2)],
+        'top':    [(4, 5, 6), (4, 6, 7)],
+        'front':  [(0, 1, 5), (0, 5, 4)],
+        'back':   [(2, 3, 7), (2, 7, 6)],
+        'left':   [(0, 4, 7), (0, 7, 3)],
+        'right':  [(1, 2, 6), (1, 6, 5)],
+    }
+    
+    # Get unique colors and create color index mapping
+    colors = {}
+    color_idx = 0
+    for face in ['top', 'bottom', 'front', 'back', 'left', 'right']:
+        proc = surface_processing.get(face, 'CUA')
+        color = get_processing_color(proc)
+        if color not in colors:
+            colors[color] = color_idx
+            color_idx += 1
+    
+    # Build vertices XML
+    vertices_xml = "\n".join([
+        f'          <vertex x="{v[0]}" y="{v[1]}" z="{v[2]}" />'
+        for v in vertices
+    ])
+    
+    # Build triangles XML with color properties
+    triangles_xml_parts = []
+    for face, tris in face_triangles.items():
+        proc = surface_processing.get(face, 'CUA')
+        color = get_processing_color(proc)
+        pid = colors[color] + 1  # 1-based index
+        for tri in tris:
+            triangles_xml_parts.append(
+                f'          <triangle v1="{tri[0]}" v2="{tri[1]}" v3="{tri[2]}" pid="1" p1="{pid}" />'
+            )
+    triangles_xml = "\n".join(triangles_xml_parts)
+    
+    # Build basematerials (colors) XML
+    basematerials_xml_parts = []
+    sorted_colors = sorted(colors.items(), key=lambda x: x[1])
+    for color_hex, idx in sorted_colors:
+        # Convert hex to 3MF format (sRGB hex without #)
+        basematerials_xml_parts.append(
+            f'        <base name="Color{idx+1}" displaycolor="{color_hex.upper()}" />'
+        )
+    basematerials_xml = "\n".join(basematerials_xml_parts)
+    
+    # 3D Model XML
+    model_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
+       xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">
+  <metadata name="Title">Stone Cuboid</metadata>
+  <metadata name="Designer">Stone Price Predictor</metadata>
+  <metadata name="Description">Dimensions: {l}cm x {w}cm x {h}cm</metadata>
+  <resources>
+    <basematerials id="1">
+{basematerials_xml}
+    </basematerials>
+    <object id="2" type="model">
+      <mesh>
+        <vertices>
+{vertices_xml}
+        </vertices>
+        <triangles>
+{triangles_xml}
+        </triangles>
+      </mesh>
+    </object>
+  </resources>
+  <build>
+    <item objectid="2" />
+  </build>
+</model>'''
+    
+    # Content Types XML
+    content_types_xml = '''<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml" />
+  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml" />
+</Types>'''
+    
+    # Relationships XML
+    rels_xml = '''<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel" />
+</Relationships>'''
+    
+    # Create ZIP archive in memory
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr('[Content_Types].xml', content_types_xml)
+        zf.writestr('_rels/.rels', rels_xml)
+        zf.writestr('3D/3dmodel.model', model_xml)
+    
+    return buffer.getvalue()
+
+
+def generate_cuboid_obj(length_cm: float, width_cm: float, height_cm: float,
+                         surface_processing: Dict[str, str]) -> tuple:
+    """
+    Generate OBJ and MTL content for a cuboid mesh with materials.
+    
+    Args:
+        length_cm, width_cm, height_cm: Dimensions in cm
+        surface_processing: Dict with processing codes for each face
+    
+    Returns:
+        tuple: (obj_content: bytes, mtl_content: bytes)
+    """
+    l, w, h = length_cm, width_cm, height_cm
+    
+    # 8 vertices of the cuboid
+    vertices = [
+        (0, 0, 0),   # 1
+        (l, 0, 0),   # 2
+        (l, w, 0),   # 3
+        (0, w, 0),   # 4
+        (0, 0, h),   # 5
+        (l, 0, h),   # 6
+        (l, w, h),   # 7
+        (0, w, h),   # 8
+    ]
+    
+    # Face definitions (vertex indices, 1-based) and their processing
+    # OBJ face order: v1 v2 v3 v4 (counter-clockwise when viewed from outside)
+    faces = {
+        'bottom': {'verts': [1, 4, 3, 2], 'proc': surface_processing.get('bottom', 'CUA')},
+        'top':    {'verts': [5, 6, 7, 8], 'proc': surface_processing.get('top', 'DOT')},
+        'front':  {'verts': [1, 2, 6, 5], 'proc': surface_processing.get('front', 'CUA')},
+        'back':   {'verts': [3, 4, 8, 7], 'proc': surface_processing.get('back', 'CUA')},
+        'left':   {'verts': [1, 5, 8, 4], 'proc': surface_processing.get('left', 'CUA')},
+        'right':  {'verts': [2, 3, 7, 6], 'proc': surface_processing.get('right', 'CUA')},
+    }
+    
+    # Generate OBJ content
+    obj_lines = [
+        "# Stone Cuboid Model",
+        f"# Dimensions: {l}cm x {w}cm x {h}cm",
+        "# Generated by Stone Price Predictor",
+        "",
+        "mtllib stone_cuboid.mtl",
+        ""
+    ]
+    
+    # Add vertices
+    for v in vertices:
+        obj_lines.append(f"v {v[0]} {v[1]} {v[2]}")
+    
+    obj_lines.append("")
+    
+    # Add texture coordinates (simple UV mapping for each face)
+    obj_lines.extend(["vt 0 0", "vt 1 0", "vt 1 1", "vt 0 1"])
+    obj_lines.append("")
+    
+    # Add normals
+    normals = {
+        'bottom': (0, 0, -1),
+        'top':    (0, 0, 1),
+        'front':  (0, -1, 0),
+        'back':   (0, 1, 0),
+        'left':   (-1, 0, 0),
+        'right':  (1, 0, 0),
+    }
+    for face_name, normal in normals.items():
+        obj_lines.append(f"vn {normal[0]} {normal[1]} {normal[2]}")
+    
+    obj_lines.append("")
+    
+    # Add faces with materials
+    normal_idx = 1
+    for face_name, face_data in faces.items():
+        proc = face_data['proc']
+        verts = face_data['verts']
+        
+        obj_lines.append(f"usemtl {proc}")
+        obj_lines.append(f"# {face_name} face")
+        # Two triangles for the quad
+        obj_lines.append(f"f {verts[0]}/1/{normal_idx} {verts[1]}/2/{normal_idx} {verts[2]}/3/{normal_idx}")
+        obj_lines.append(f"f {verts[0]}/1/{normal_idx} {verts[2]}/3/{normal_idx} {verts[3]}/4/{normal_idx}")
+        normal_idx += 1
+    
+    obj_content = "\n".join(obj_lines).encode('utf-8')
+    
+    # Generate MTL content with colors for each processing type
+    proc_lookup = {code: (eng, vn) for code, eng, vn in PROCESSING_CODES}
+    unique_procs = set(surface_processing.values())
+    
+    mtl_lines = [
+        "# Material Library for Stone Cuboid",
+        "# Generated by Stone Price Predictor",
+        ""
+    ]
+    
+    for proc in unique_procs:
+        color = get_processing_color(proc)
+        # Convert hex color to RGB (0-1 range)
+        r = int(color[1:3], 16) / 255
+        g = int(color[3:5], 16) / 255
+        b = int(color[5:7], 16) / 255
+        
+        proc_name = proc_lookup.get(proc, ('Unknown', 'Unknown'))
+        texture_file = get_texture_for_processing(proc)
+        
+        mtl_lines.extend([
+            f"newmtl {proc}",
+            f"# {proc_name[1]} ({proc_name[0]})",
+            f"Kd {r:.4f} {g:.4f} {b:.4f}",  # Diffuse color
+            f"Ka {r*0.3:.4f} {g*0.3:.4f} {b*0.3:.4f}",  # Ambient color
+            "Ks 0.2 0.2 0.2",  # Specular color
+            "Ns 50",  # Shininess
+            "d 1.0",  # Opacity
+            f"map_Kd textures/{texture_file}",  # Texture map
+            ""
+        ])
+    
+    mtl_content = "\n".join(mtl_lines).encode('utf-8')
+    
+    return obj_content, mtl_content
+
+
+def generate_3d_cuboid(length_cm: float, width_cm: float, height_cm: float,
+                       surface_processing: Dict[str, str]) -> go.Figure:
+    """
+    Generate a 3D cuboid visualization using Plotly (fallback).
+    For better results, use generate_3d_cuboid_html() with st.components.html()
+    """
+    import numpy as np
+    
+    l, w, h = length_cm, width_cm, height_cm
+    proc_lookup = {code: (eng, vn) for code, eng, vn in PROCESSING_CODES}
+    
+    traces = []
+    vertices = np.array([
+        [0, 0, 0], [l, 0, 0], [l, w, 0], [0, w, 0],
+        [0, 0, h], [l, 0, h], [l, w, h], [0, w, h],
+    ])
+    
+    faces = {
+        'bottom': [0, 1, 2, 3, 0], 'top': [4, 5, 6, 7, 4],
+        'front': [0, 1, 5, 4, 0], 'back': [3, 2, 6, 7, 3],
+        'left': [0, 3, 7, 4, 0], 'right': [1, 2, 6, 5, 1],
+    }
+    face_labels_vn = {'top': 'Trên', 'bottom': 'Đáy', 'front': 'Trước', 'back': 'Sau', 'left': 'Trái', 'right': 'Phải'}
+    
+    for face_name, vertex_indices in faces.items():
+        proc_code = surface_processing.get(face_name, 'CUA')
+        color = get_processing_color(proc_code)
+        proc_name = proc_lookup.get(proc_code, ('Unknown', 'Không xác định'))
+        face_verts = vertices[vertex_indices]
+        
+        traces.append(go.Mesh3d(
+            x=face_verts[:4, 0], y=face_verts[:4, 1], z=face_verts[:4, 2],
+            i=[0, 0], j=[1, 2], k=[2, 3],
+            color=color, opacity=0.85,
+            name=f"{face_labels_vn[face_name]}: {proc_code}",
+            hovertemplate=f"<b>{face_labels_vn[face_name]}</b><br>Gia công: {proc_code}<br>{proc_name[1]}<extra></extra>",
+            showlegend=True, flatshading=True
+        ))
+    
+    # Edges
+    edge_pairs = [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4), (0, 4), (1, 5), (2, 6), (3, 7)]
+    edges_x, edges_y, edges_z = [], [], []
+    for v1, v2 in edge_pairs:
+        edges_x.extend([vertices[v1, 0], vertices[v2, 0], None])
+        edges_y.extend([vertices[v1, 1], vertices[v2, 1], None])
+        edges_z.extend([vertices[v1, 2], vertices[v2, 2], None])
+    
+    traces.append(go.Scatter3d(x=edges_x, y=edges_y, z=edges_z, mode='lines',
+                               line=dict(color='black', width=4), showlegend=False, hoverinfo='skip'))
+    
+    fig = go.Figure(data=traces)
+    max_dim = max(l, w, h)
+    fig.update_layout(
+        scene=dict(
+            xaxis=dict(title='Dài (cm)', range=[-max_dim*0.1, l + max_dim*0.1]),
+            yaxis=dict(title='Rộng (cm)', range=[-max_dim*0.1, w + max_dim*0.1]),
+            zaxis=dict(title='Cao (cm)', range=[-max_dim*0.1, h + max_dim*0.1]),
+            aspectmode='data',
+            camera=dict(eye=dict(x=1.8, y=1.8, z=1.2), up=dict(x=0, y=0, z=1)),
+        ),
+        title=dict(text=f'🧊 {length_cm}×{width_cm}×{height_cm} cm', x=0.5),
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01, bgcolor="rgba(255,255,255,0.9)"),
+        margin=dict(l=0, r=0, t=50, b=0), height=450
+    )
+    return fig
+
+
+
+def calculate_multi_surface_price(
+    base_price_m3: float,
+    surface_processing: Dict[str, str],
+    length_cm: float,
+    width_cm: float, 
+    height_cm: float,
+    stone_color_type: str
+) -> Dict[str, Any]:
+    """
+    Calculate price for an object with different processing on each surface.
+    
+    Args:
+        base_price_m3: Base price per m³
+        surface_processing: Dict with keys 'top', 'bottom', 'front', 'back', 'left', 'right'
+        length_cm, width_cm, height_cm: Dimensions
+        stone_color_type: Stone type
+    
+    Returns:
+        Dict with price breakdown
+    """
+    # Calculate area of each surface in m²
+    surface_areas = {
+        'top': (length_cm * width_cm) / 10000,
+        'bottom': (length_cm * width_cm) / 10000,
+        'front': (length_cm * height_cm) / 10000,
+        'back': (length_cm * height_cm) / 10000,
+        'left': (width_cm * height_cm) / 10000,
+        'right': (width_cm * height_cm) / 10000,
+    }
+    
+    total_surface_area = sum(surface_areas.values())
+    volume_m3 = calculate_volume_m3(length_cm, width_cm, height_cm)
+    
+    # Processing complexity factors (higher = more expensive)
+    processing_factors = {
+        'CTA': 0.8,   # Hand split - basic
+        'TLO': 0.85,  # Natural raised
+        'TDE': 0.9,   # Trimmed
+        'CUA': 1.0,   # Sawn - baseline
+        'CLO': 1.05,  # Stripped sawn
+        'QME': 0.95,  # Tumbled
+        'GCT': 1.1,   # Hand antiqued
+        'DOT': 1.15,  # Flamed
+        'DOC': 1.2,   # Flamed brushed
+        'DOX': 1.25,  # Flamed water jet
+        'HON': 1.3,   # Honed
+        'BON': 1.5,   # Polished
+        'BAM': 1.1,   # Bush-hammered
+        'GCR': 1.15,  # Machine antiqued
+        'MGI': 1.35,  # Paper polished
+        'PCA': 1.2,   # Sandblasted
+    }
+    
+    # Calculate weighted processing factor
+    weighted_factor = 0
+    for surface, area in surface_areas.items():
+        proc_code = surface_processing.get(surface, 'CUA')
+        factor = processing_factors.get(proc_code, 1.0)
+        weighted_factor += (area / total_surface_area) * factor
+    
+    # Calculate price
+    adjusted_price_m3 = base_price_m3 * weighted_factor
+    
+    # Multi-surface premium (complexity in production)
+    unique_processes = len(set(surface_processing.values()))
+    if unique_processes > 1:
+        complexity_premium = 1 + (unique_processes - 1) * 0.03  # 3% per additional process type
+    else:
+        complexity_premium = 1.0
+    
+    final_price_m3 = adjusted_price_m3 * complexity_premium
+    
+    # Calculate price per piece
+    price_per_piece = final_price_m3 * volume_m3
+    
+    # Calculate per m²
+    price_per_m2 = final_price_m3 * (height_cm / 100)
+    
+    return {
+        'base_price_m3': round(base_price_m3, 2),
+        'adjusted_price_m3': round(adjusted_price_m3, 2),
+        'final_price_m3': round(final_price_m3, 2),
+        'price_per_piece': round(price_per_piece, 2),
+        'price_per_m2': round(price_per_m2, 2),
+        'weighted_factor': round(weighted_factor, 3),
+        'complexity_premium': round((complexity_premium - 1) * 100, 1),
+        'unique_processes': unique_processes,
+        'volume_m3': round(volume_m3, 6),
+        'total_surface_area_m2': round(total_surface_area, 4),
+        'surface_areas': {k: round(v, 4) for k, v in surface_areas.items()},
+    }
+
+
+
 def calculate_customer_price(base_price: float, customer_type: str, 
                              segment: str = None, charge_unit: str = 'USD/M3') -> Dict[str, Any]:
     """
@@ -1779,13 +2693,15 @@ def main():
         return
     
     # Tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "🔮 Dự đoán giá", 
+        "🧊 Tính giá nâng cao",
         "📊 Phân tích dữ liệu", 
         "🔍 Tìm sản phẩm tương tự",
         "📐 Bảng tra cứu",
         "📋 Dữ liệu chi tiết"
     ])
+
     
     # Tab 1: Price Prediction
     with tab1:
@@ -2398,16 +3314,17 @@ def main():
             
             # Show table of ALL matches with Regional Group included
             display_cols = [
-                'contract_product_name', 'contract_name', 'account_code',
-                'customer_regional_group',  # Regional Group now visible
-                'billing_country',  # Billing Country from Account.BillingAddress
-                'sku', 'application_code', 'application',
-                'processing_code', 'processing_name',
-                'stone_color_type', 'segment',
+                # Primary columns (user requested order)
+                'contract_product_name', 'contract_name',
                 'length_cm', 'width_cm', 'height_cm',
-                'specific_gravity', 'hs_coefficient',  # TLR and HS from Salesforce
-                'charge_unit', 'sales_price', 'price_m3',
-                'created_date', 'fy_year',
+                'sales_price', 'charge_unit', 'price_m3',
+                'created_date',
+                # Secondary columns
+                'sku', 'stone_color_type',
+                'processing_code', 'processing_name',
+                'application_code', 'application',
+                'account_code', 'customer_regional_group', 'billing_country',
+                'segment', 'specific_gravity', 'hs_coefficient', 'fy_year',
             ]
             available_cols = [col for col in display_cols if col in matches.columns]
             
@@ -2899,9 +3816,239 @@ def main():
 | **MARBLE** | MB, MT, MV |
             """)
     
-    # Tab 2: Data Analysis
+    # Tab 2: Advanced Price Prediction with 3D Model
     with tab2:
+        st.subheader("🧊 Tính giá nâng cao (beta) - 3D Model")
+        st.markdown("Chọn gia công cho từng mặt của khối đá và xem mô hình 3D tương tác")
+        
+        col_input, col_3d = st.columns([1, 2])
+        
+        with col_input:
+            st.markdown("#### 📦 Thông tin sản phẩm")
+            
+            # Stone type
+            adv_stone_color = st.selectbox(
+                "Màu đá (Stone Color)",
+                options=[code for code, label in STONE_COLOR_TYPES],
+                format_func=lambda x: STONE_COLOR_LOOKUP.get(x, x),
+                key="adv_stone_color"
+            )
+            
+            # Dimensions
+            st.markdown("##### Kích thước")
+            adv_length = st.number_input("Dài (cm)", min_value=1.0, max_value=300.0, value=60.0, step=1.0, key="adv_length")
+            adv_width = st.number_input("Rộng (cm)", min_value=1.0, max_value=300.0, value=40.0, step=1.0, key="adv_width") 
+            adv_height = st.number_input("Cao (cm)", min_value=0.5, max_value=50.0, value=5.0, step=0.5, key="adv_height")
+            
+            st.divider()
+            
+            # 6-Surface Processing Selection
+            st.markdown("#### 🔧 Gia công từng mặt")
+            
+            processing_lookup = {code: (eng, vn) for code, eng, vn in PROCESSING_CODES}
+            processing_options = [code for code, eng, vn in PROCESSING_CODES]
+            
+            def format_proc(x):
+                return f"{x} - {processing_lookup.get(x, ('Other', 'Khác'))[1]}"
+            
+            # Surface labels in Vietnamese
+            surface_labels = {
+                'top': '🔝 Mặt trên (Top)',
+                'bottom': '🔻 Mặt đáy (Bottom)',
+                'front': '⬛ Mặt trước (Front)',
+                'back': '⬜ Mặt sau (Back)',
+                'left': '◀️ Mặt trái (Left)',
+                'right': '▶️ Mặt phải (Right)',
+            }
+            
+            # Default processing codes for each surface
+            default_processing = {
+                'top': 'DOT',      # Flamed for top (visible)
+                'bottom': 'CUA',   # Sawn for bottom
+                'front': 'DOC',    # Flamed brush for front
+                'back': 'CUA',     # Sawn for back
+                'left': 'CUA',     # Sawn for left
+                'right': 'CUA',    # Sawn for right
+            }
+            
+            surface_processing = {}
+            for surface in ['top', 'bottom', 'front', 'back', 'left', 'right']:
+                default_idx = processing_options.index(default_processing[surface]) if default_processing[surface] in processing_options else 0
+                surface_processing[surface] = st.selectbox(
+                    surface_labels[surface],
+                    options=processing_options,
+                    format_func=format_proc,
+                    index=default_idx,
+                    key=f"adv_proc_{surface}"
+                )
+            
+            st.divider()
+            
+            # Customer classification
+            adv_customer_type = st.selectbox(
+                "Phân loại khách hàng",
+                ['C', 'A', 'B', 'D', 'E', 'F'],
+                format_func=lambda x: f"{x} - {CUSTOMER_PRICING_RULES[x]['description']}",
+                key="adv_customer_type"
+            )
+            
+            adv_charge_unit = st.selectbox("Đơn vị tính giá", CHARGE_UNITS, key="adv_charge_unit")
+            
+            # Predict button
+            adv_predict_btn = st.button("🧮 Ước tính giá nâng cao", type="primary", use_container_width=True, key="adv_predict_btn")
+        
+        with col_3d:
+            st.markdown("#### 🧊 Mô hình 3D")
+            
+            # Use Three.js 3D viewer with per-face textures
+            html_3d = generate_3d_textured_cuboid(adv_length, adv_width, adv_height, surface_processing)
+            import streamlit.components.v1 as components
+            components.html(html_3d, height=450)
+            
+            # Export for CAD/Modeling
+            st.divider()
+            st.markdown("##### 📥 Xuất file 3D")
+            st.caption("Tải xuống file 3D để sử dụng trong phần mềm CAD/modeling")
+            
+            # Generate export content
+            stl_content = generate_cuboid_stl(adv_length, adv_width, adv_height)
+            threemf_content = generate_cuboid_3mf(adv_length, adv_width, adv_height, surface_processing)
+            
+            col_stl, col_3mf = st.columns(2)
+            with col_stl:
+                st.download_button(
+                    label="📦 STL",
+                    data=stl_content,
+                    file_name=f"stone_{int(adv_length)}x{int(adv_width)}x{int(adv_height)}.stl",
+                    mime="application/sla",
+                    use_container_width=True,
+                    key="download_stl_btn",
+                    help="STL format - geometry only, universal compatibility"
+                )
+            with col_3mf:
+                st.download_button(
+                    label="🎨 3MF",
+                    data=threemf_content,
+                    file_name=f"stone_{int(adv_length)}x{int(adv_width)}x{int(adv_height)}.3mf",
+                    mime="application/vnd.ms-package.3dmanufacturing-3dmodel+xml",
+                    use_container_width=True,
+                    key="download_3mf_btn",
+                    help="3MF format - geometry + colors in one file"
+                )
+            
+            st.caption("💡 **STL**: Geometry only | **3MF**: Includes face colors for each processing type")
+        
+
+        # Price calculation results
+        if adv_predict_btn and st.session_state.model is not None:
+            st.divider()
+            st.markdown("### 📊 Kết quả ước tính giá nâng cao")
+            
+            predictor = st.session_state.model
+            
+            # Find base price using similarity matching
+            main_proc = surface_processing.get('top', 'DOT')  # Use top surface as main processing
+            matches = predictor.find_matching_products(
+                stone_color_type=adv_stone_color,
+                processing_code=main_proc,
+                length_cm=adv_length,
+                width_cm=adv_width,
+                height_cm=adv_height,
+                application_codes=[],
+                customer_regional_group='',
+                charge_unit='USD/M3',
+                dimension_priority='Ưu tiên 3 - Sai lệch lớn',
+                region_priority='Ưu tiên 3',
+            )
+            
+            if len(matches) > 0:
+                base_estimation = predictor.estimate_price(
+                    matches,
+                    query_length_cm=adv_length,
+                    query_width_cm=adv_width,
+                    query_height_cm=adv_height,
+                    target_charge_unit='USD/M3',
+                    stone_color_type=adv_stone_color,
+                    processing_code=main_proc
+                )
+                base_price_m3 = base_estimation.get('price_m3', 500)  # Default if not available
+            else:
+                base_price_m3 = 500  # Default base price
+                st.warning("⚠️ Không tìm thấy sản phẩm tham khảo. Sử dụng giá cơ sở mặc định.")
+            
+            # Calculate multi-surface price
+            price_result = calculate_multi_surface_price(
+                base_price_m3=base_price_m3,
+                surface_processing=surface_processing,
+                length_cm=adv_length,
+                width_cm=adv_width,
+                height_cm=adv_height,
+                stone_color_type=adv_stone_color
+            )
+            
+            # Apply customer adjustment
+            segment = classify_segment(price_result['final_price_m3'], height_cm=adv_height)
+            customer_price_info = calculate_customer_price(
+                price_result['final_price_m3'] if adv_charge_unit == 'USD/M3' else 
+                price_result['price_per_piece'] if adv_charge_unit == 'USD/PC' else
+                price_result['price_per_m2'],
+                adv_customer_type,
+                segment=segment,
+                charge_unit=adv_charge_unit
+            )
+            
+            # Display results
+            col_result1, col_result2, col_result3 = st.columns(3)
+            
+            with col_result1:
+                st.metric("💰 Giá ước tính (USD/M³)", f"${price_result['final_price_m3']:,.2f}")
+                st.metric("📦 Giá theo viên (USD/PC)", f"${price_result['price_per_piece']:,.2f}")
+            
+            with col_result2:
+                st.metric("📐 Giá theo m² (USD/M²)", f"${price_result['price_per_m2']:,.2f}")
+                st.metric("🧊 Thể tích (m³)", f"{price_result['volume_m3']:.6f}")
+            
+            with col_result3:
+                st.metric("📊 Hệ số gia công TB", f"{price_result['weighted_factor']:.3f}")
+                if price_result['complexity_premium'] > 0:
+                    st.metric("⚙️ Phụ thu phức tạp", f"+{price_result['complexity_premium']:.1f}%")
+                else:
+                    st.metric("⚙️ Phụ thu phức tạp", "0%")
+            
+            # Customer price card
+            conf_color = get_segment_color(segment)
+            final_price = (customer_price_info['min_price'] + customer_price_info['max_price']) / 2
+            
+            st.markdown(f"""
+            <div style="background-color: {conf_color}; padding: 20px; border-radius: 10px; margin-top: 20px;">
+                <p style="color: white; margin: 0; font-size: 1.1em; font-weight: bold;">💵 Giá đề xuất cho khách hàng loại {adv_customer_type} ({adv_charge_unit}):</p>
+                <h1 style="color: white; margin: 5px 0; font-size: 3em;">${final_price:,.2f}</h1>
+                <p style="color: white; margin: 0;">Khoảng giá: <b>${customer_price_info['min_price']:,.2f}</b> – <b>${customer_price_info['max_price']:,.2f}</b></p>
+                <hr style="margin: 10px 0; border-top: 1px solid rgba(255,255,255,0.3);">
+                <p style="color: white; margin: 5px 0;">📊 Phân khúc: {segment} | 🔧 Số loại gia công: {price_result['unique_processes']}</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Surface area breakdown
+            with st.expander("📐 Chi tiết diện tích từng mặt", expanded=False):
+                area_data = []
+                for surface, area in price_result['surface_areas'].items():
+                    proc = surface_processing.get(surface, 'CUA')
+                    proc_name = processing_lookup.get(proc, ('Unknown', 'Không xác định'))
+                    area_data.append({
+                        'Mặt': surface_labels.get(surface, surface),
+                        'Gia công': f"{proc} - {proc_name[1]}",
+                        'Diện tích (m²)': f"{area:.4f}"
+                    })
+                st.dataframe(pd.DataFrame(area_data), use_container_width=True, hide_index=True)
+        
+        elif adv_predict_btn and st.session_state.model is None:
+            st.error("⚠️ Vui lòng tải dữ liệu từ Salesforce trước khi ước tính giá.")
+    
+    # Tab 3: Data Analysis (was Tab 2)
+    with tab3:
         st.subheader("📊 Phân tích dữ liệu giá")
+
         
         df = st.session_state.data.copy()
         
@@ -3105,8 +4252,8 @@ def main():
             )
             st.plotly_chart(fig_corr, use_container_width=True)
     
-    # Tab 3: Similar Products
-    with tab3:
+    # Tab 4: Similar Products (was Tab 3)
+    with tab4:
         st.subheader("🔍 Tìm sản phẩm tương tự")
         
         col1, col2 = st.columns([1, 2])
@@ -3283,8 +4430,8 @@ def main():
                     else:
                         st.info("Không tìm thấy sản phẩm liên quan.")
     
-    # Tab 4: Weight & Conversion Reference
-    with tab4:
+    # Tab 5: Weight & Conversion Reference (was Tab 4)
+    with tab5:
         st.subheader("📐 Bảng tra cứu TLR & Hệ số")
         
         if st.session_state.model_metrics is not None:
@@ -3390,8 +4537,8 @@ Tấn = m³ × TLR × HS
         }
         st.dataframe(pd.DataFrame(container_data), use_container_width=True, hide_index=True)
     
-    # Tab 5: Detailed Data
-    with tab5:
+    # Tab 6: Detailed Data (was Tab 5)
+    with tab6:
         st.subheader("📋 Dữ liệu chi tiết")
         
         # Filters

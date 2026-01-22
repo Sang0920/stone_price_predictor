@@ -7,3 +7,4 @@ python-dotenv>=1.0.0
 simple-salesforce>=1.12.5
 requests>=2.31.0
 matplotlib>=3.7.0
+streamlit_stl>=0.0.6
