@@ -1,0 +1,261 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+
+% --- FIX: Use T5 encoding for correct Vietnamese rendering ---
+\usepackage[utf8]{inputenc} 
+\usepackage[T5]{fontenc}    % Changed from T1 to T5 for Vietnamese support
+\usepackage{lmodern}        % Ensures a font that supports T5 is used
+% -------------------------------------------------------------
+
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{hyperref}
+
+\title{Special Product Identification \& Volume (m$^3$) Calculation Reference}
+\author{Automated analysis}
+\date{22 January 2026}
+
+\begin{document}
+\maketitle
+
+\section{Executive summary}
+This report documents (1) how ``special products'' were identified and filtered from the provided datasets, and (2) the geometry logic used to calculate volume in cubic meters (m$^3$) for each special shape code.
+
+\section{Source files and outputs}
+\subsection{Inputs}
+\begin{itemize}
+  \item \texttt{Code Rule AND Product list -1 (new 2025).xlsx}
+  \begin{itemize}
+    \item Worksheet \texttt{Mã NVL, SP, Gia công}: provides the authoritative list of special-shape codes (column \texttt{Ký hiệu.2}).
+    \item Worksheet \texttt{DANH MUC SP}: product master list used to detect special products by product-code suffix.
+  \end{itemize}
+  \item \texttt{output.csv}: transactional/line-level dataset containing \texttt{Product\_\_r.StockKeepingUnit} and quantities.
+\end{itemize}
+
+\subsection{Generated outputs}
+\begin{itemize}
+  \item \texttt{special\_products\_filtered.csv} and \texttt{special\_products\_filtered.xlsx}: all rows from \texttt{output.csv} classified as special products, with added columns \texttt{special\_code} and \texttt{special\_shape}.
+  \item \texttt{special\_products\_DANH\_MUC\_SP.xlsx}: all rows from worksheet \texttt{DANH MUC SP} classified as special products, with added columns \texttt{special\_code} and \texttt{special\_shape}.
+\end{itemize}
+
+\subsection{Dataset sizes}
+\begin{center}
+\begin{tabular}{lrr}
+\toprule
+Dataset & Rows & Notes \\
+\midrule
+\texttt{output.csv} & 3301 & 1100 unique SKUs \\
+Filtered special rows (from \texttt{output.csv}) & 100 & 60 unique SKUs \\
+\texttt{DANH MUC SP} worksheet & 526 & product master list \\
+Filtered special rows (from \texttt{DANH MUC SP}) & 31 & special products in master list \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+In \texttt{output.csv}, special products represent 3.0\% of rows and 5.5\% of unique SKUs.
+In \texttt{DANH MUC SP}, special products represent 5.9\% of rows.
+
+\section{Special-product definition (authoritative code list)}
+The worksheet \texttt{Mã NVL, SP, Gia công} defines ``Sản phẩm đặc biệt'' (special products) via the following codes:
+
+\begin{center}
+\begin{tabular}{cll}
+\toprule
+Code & Vietnamese name & English interpretation \\
+\midrule
+L & Cắt chữ L & L-shape / L-profile \\
+U & Cắt chữ U & U-shape / channel profile \\
+G & Cắt góc độ & Angle cut / chamfer (degree cut) \\
+C & Cắt vòng cung & Arc cut / rounded corner \\
+K & Lỗ khoan & Drilled hole \\
+T & Hình trụ & Cylinder \\
+B & Đá bộ & Set / kit (multiple pieces) \\
+V & Đá vành & Ring / annulus / ring-step stone \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Filtering methodology}
+\subsection{Filtering special products in \texttt{output.csv}}
+\paragraph{Primary key.} The detection key is the SKU field \texttt{Product\_\_r.StockKeepingUnit}.
+\paragraph{Observation.} SKUs in \texttt{output.csv} follow a structured pattern that typically includes a dash (``\texttt{-}'') separating a prefix (stone/finish family) from a dimension and feature segment.
+Special-shape markers appear in this segment.
+
+\paragraph{Rule.}
+\begin{enumerate}
+  \item Split SKU on the first dash and take the substring to the right (the ``dimension segment'').
+  \item Assign a \texttt{special\_code} if the dimension segment contains a recognized special marker.
+  \item \textbf{Important precedence to avoid false positives:} for U-profiles, the dimension segment commonly contains \texttt{UL}, \texttt{UR}, or \texttt{UT} (direction/variant markers).
+  These include the letters \texttt{L} and/or \texttt{T}, but should be classified as \texttt{U}.
+  Therefore, U-profile detection is evaluated before standalone \texttt{L} or \texttt{T} detection.
+  \item If a \texttt{special\_code} is assigned, the row is kept as a special product.
+\end{enumerate}
+
+\paragraph{Implementation note.} The resulting exports include two added columns:
+\begin{itemize}
+  \item \texttt{special\_code}: one of \{L,U,G,C,K,T,B,V\}
+  \item \texttt{special\_shape}: a human-readable label (Vietnamese + brief English hint)
+\end{itemize}
+
+\subsection{Filtering special products in \texttt{DANH MUC SP}}
+For the master list worksheet \texttt{DANH MUC SP}, special products are indicated by a suffix character in \texttt{Mã sản phẩm}.
+The detection used:
+\begin{enumerate}
+  \item Take the last character of \texttt{Mã sản phẩm}.
+  \item If it is in \{L,U,G,C,K,T,B,V\}, classify the row as a special product and assign \texttt{special\_code}.
+\end{enumerate}
+
+\section{Results}
+\subsection{Results for \texttt{output.csv}}
+A total of 100 rows were classified as special products, corresponding to 60 unique SKUs.
+\begin{center}
+\begin{tabular}{cllrrr}
+\toprule
+Code & Vietnamese name & English interpretation & Rows & \% of special & Unique SKUs \\
+\midrule
+L & Cắt chữ L & L-shape / L-profile & 11 & 11.0\% & 8 \\
+U & Cắt chữ U & U-shape / channel profile & 22 & 22.0\% & 18 \\
+G & Cắt góc độ & Angle cut / chamfer (degree cut) & 2 & 2.0\% & 2 \\
+C & Cắt vòng cung & Arc cut / rounded corner & 6 & 6.0\% & 3 \\
+K & Lỗ khoan & Drilled hole & 0 & 0.0\% & 0 \\
+T & Hình trụ & Cylinder & 6 & 6.0\% & 5 \\
+B & Đá bộ & Set / kit (multiple pieces) & 36 & 36.0\% & 14 \\
+V & Đá vành & Ring / annulus / ring-step stone & 17 & 17.0\% & 10 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent \textbf{Key finding:} Code \texttt{K} (Lỗ khoan) did not appear in the provided \texttt{output.csv}.
+\subsection{Results for \texttt{DANH MUC SP}}
+In the worksheet \texttt{DANH MUC SP}, %(danh_special_rows)d rows were classified as special products (all with code \texttt{V} in this dataset).
+\section{Volume (m$^3$) calculation reference}
+\subsection{Units and conventions}
+All formulas below assume inputs are in meters.
+If source dimensions are in millimeters (mm) or centimeters (cm), convert first:
+\[
+L_{m}=\frac{L_{mm}}{1000}\quad\text{or}\quad L_{m}=\frac{L_{cm}}{100},
+\]
+and similarly for width ($W$), height/thickness ($H$), radii ($r$), and diameters ($d$).
+\subsection{Baseline: rectangular prism}
+For a standard rectangular block:
+\[
+V = L\,W\,H.
+\]
+
+\subsection{L --- Cắt chữ L (L-shape)}
+Two common interpretations are used in practice:
+
+\paragraph{(A) L-profile cross-section (``wrap'') extruded along length.}
+Let $L$ be the run length, $a$ the tread (horizontal leg), $b$ the riser (vertical leg), and $t$ the wall thickness.
+The cross-section area is:
+\[
+A = t a + t b - t^2,
+\]
+and the volume is $V = L\,A$.
+\paragraph{(B) L-shape in plan view (two rectangles joined) with uniform thickness.}
+If plan area is the union of two rectangles minus overlap:
+\[
+A = (L_1W_1) + (L_2W_2) - (L_oW_o),
+\]
+then $V = A\,H$.
+\subsection{U --- Cắt chữ U (U-profile / channel)}
+Let $L$ be length, outer width $W$, outer height $H$, and wall thickness $t$.
+Inner dimensions are:
+\[
+W_{in}=W-2t,\qquad H_{in}=H-t.
+\]
+Cross-section area:
+\[
+A = WH - W_{in}H_{in},
+\]
+and volume $V = L\,A$.
+\subsection{G --- Cắt góc độ (angle cut)}
+If one corner of a rectangle is cut away by a right-triangle of legs $a$ and $b$ (in plan view), removed area is:
+\[
+A_{cut} = \frac{1}{2}ab.
+\]
+Then:
+\[
+V = (LW - A_{cut})\,H.
+\]
+
+\subsection{C --- Cắt vòng cung (arc / rounded corner)}
+If a quarter-circle of radius $r$ is removed from a corner (plan view), removed area is:
+\[
+A_{cut} = \frac{\pi r^2}{4{4}}.
+\]
+Then:
+\[
+V = (LW - A_{cut})\,H.
+\]
+More generally, for a sector of angle $\theta$ degrees: $A_{cut}=\pi r^2\left(\frac{\theta}{360}\right)$.
+\subsection{K --- Lỗ khoan (drilled hole)}
+Compute the base volume and subtract cylindrical holes.
+For $n$ holes of diameter $d$ and hole depth $h$:
+\[
+V = LWH - n\left(\pi\left(\frac{d}{2}\right)^2 h\right).
+\]
+If the hole is through-thickness, use $h=H$.
+
+\subsection{T --- Hình trụ (cylinder)}
+\paragraph{Solid cylinder.}
+For diameter $d$ and height $h$:
+\[
+V = \pi\left(\frac{d}{2}\right)^2 h.
+\]
+\paragraph{Hollow cylinder (pipe).}
+With outer radius $R_o$ and inner radius $R_i$:
+\[
+V = \pi(R_o^2 - R_i^2)h.
+\]
+
+\subsection{B --- Đá bộ (set / kit)}
+A set is a sum of component volumes.
+If a set contains pieces $i=1\ldots k$ with per-piece volume $V_i$ and quantity $q_i$:
+\[
+V_{\text{set}} = \sum_{i=1}^{k} V_i q_i.
+\]
+Total volume for $N$ sets: $V_{\text{total}} = N\,V_{\text{set}}$.
+
+\subsection{V --- Đá vành (ring / annulus)}
+For a full ring (annulus) with outer radius $R_o$, inner radius $R_i$, and thickness $H$:
+\[
+V = \pi(R_o^2 - R_i^2)H.
+\]
+For a partial ring (arc) spanning $\theta$ degrees:
+\[
+V = \pi(R_o^2 - R_i^2)H\left(\frac{\theta}{360}\right).
+\]
+
+\section{Known data gaps and recommendations}
+\begin{itemize}
+  \item Several U-profile lines in \texttt{output.csv} have missing height/thickness fields.
+  A reliable m$^3$ calculation for U-profiles requires the missing profile depth and wall thickness (or a drawing/specification reference).
+  \item Some SKUs contain multiple letters that could be interpreted as special markers (e.g., \texttt{UL} or \texttt{UT});
+  ensure extraction logic uses context/precedence so that direction markers do not override the intended special code.
+  \item For \texttt{B} (set) products, m$^3$ should be calculated from the bill of materials (piece list) rather than any single dimension string.
+\end{itemize}
+
+\appendix
+\section{Appendix: practical extraction pseudocode}
+\begin{verbatim}
+For each row in output.csv:
+  sku = Product__r.StockKeepingUnit
+  dim = substring_after_first_dash(sku)
+
+  if dim contains "U" immediately followed by L/R/T (e.g., UL, UR, UT): code="U"
+  else if dim contains "B": code="B"
+  else if dim contains "V": code="V"
+  else if dim contains "L": code="L"
+  else if dim contains "C": code="C"
+  else if dim contains "G": code="G"
+  else if dim contains "K": code="K"
+  else if dim contains "T" (or "(T)"): code="T"
+  else: code=None
+
+  keep row if code is not None
+\end{verbatim}
+
+\end{document}

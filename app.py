@@ -219,6 +219,21 @@ APPLICATION_CODES = [
 # Application codes for search (includes 'All' option)
 APPLICATION_CODES_SEARCH = [('', 'All')] + APPLICATION_CODES
 
+# Special product shapes (SKU position 13) per sku.tex
+# These are non-standard shapes that require special handling
+# Format: (code, Vietnamese name, English name)
+SPECIAL_SHAPES = [
+    ('R', 'Xẻ rãnh thoát nước', 'Drain Groove'),
+    ('L', 'Cắt chữ L', 'L-Cut'),
+    ('U', 'Cắt chữ U', 'U-Cut / U-Profile'),
+    ('G', 'Cắt góc vuông', 'Corner Cut'),
+    ('C', 'Cắt vòng cung', 'Arc Cut'),
+    ('K', 'Lỗ khoan', 'Drill Hole'),
+    ('T', 'Hình trụ', 'Cylinder'),
+    ('B', 'Đá bộ', 'Set Stone'),
+    ('V', 'Đá vành', 'Ring Stone'),
+]
+
 # Stone Color Types and their family groupings
 # Based on sku.tex - Nguyên vật liệu (Vị trí 1, 2)
 # Format: (internal_value, display_label)
@@ -720,6 +735,199 @@ def calculate_volume_m3(length_cm: float, width_cm: float, height_cm: float, qua
 def calculate_area_m2(length_cm: float, width_cm: float, quantity: int = 1) -> float:
     """Calculate area in m². Formula: (L×W)/10,000 × qty"""
     return (length_cm * width_cm) / 10_000 * quantity
+
+
+def calculate_special_shape_volume_m3(
+    shape_code: str,
+    length_cm: float,
+    width_cm: float,
+    height_cm: float,
+    wall_thickness_cm: float = None,
+    cut_leg_a_cm: float = None,
+    cut_leg_b_cm: float = None,
+    arc_radius_cm: float = None,
+    arc_angle_degrees: float = 90.0,
+    hole_count: int = None,
+    hole_diameter_cm: float = None,
+    hole_depth_cm: float = None,
+    outer_radius_cm: float = None,
+    inner_radius_cm: float = None,
+) -> float:
+    """
+    Calculate volume in m³ for special shapes.
+    Based on formulas from special_products_report.tex.
+    
+    Args:
+        shape_code: One of L, U, G, C, K, T, B, V
+        length_cm, width_cm, height_cm: Base dimensions in cm
+        wall_thickness_cm: Wall thickness for L-shape and U-profile
+        cut_leg_a_cm, cut_leg_b_cm: Cut dimensions for G (angle cut)
+        arc_radius_cm: Radius for C (arc cut) and T (cylinder)
+        arc_angle_degrees: Arc angle for C and V shapes (default 90°)
+        hole_count, hole_diameter_cm, hole_depth_cm: Parameters for K (drilled hole)
+        outer_radius_cm, inner_radius_cm: Radii for T (hollow cylinder) and V (ring)
+    
+    Returns:
+        Volume in m³
+    """
+    import math
+    
+    # Convert cm to m
+    L = length_cm / 100
+    W = width_cm / 100
+    H = height_cm / 100
+    
+    if shape_code == 'L':
+        # L-profile: V = L × (t×W + t×H - t²)
+        # Interpretation: L-profile cross-section extruded along length
+        t = (wall_thickness_cm or 3) / 100  # Default 3cm wall
+        area = t * W + t * H - t * t
+        return L * area
+    
+    elif shape_code == 'U':
+        # U-profile: V = L × (W×H - (W-2t)(H-t))
+        t = (wall_thickness_cm or 3) / 100  # Default 3cm wall
+        w_in = W - 2 * t
+        h_in = H - t
+        if w_in > 0 and h_in > 0:
+            area = W * H - w_in * h_in
+        else:
+            area = W * H  # Fallback to solid if wall too thick
+        return L * area
+    
+    elif shape_code == 'G':
+        # Angle cut: V = (L×W - ½ab) × H
+        a = (cut_leg_a_cm or 0) / 100
+        b = (cut_leg_b_cm or 0) / 100
+        cut_area = 0.5 * a * b
+        plan_area = L * W - cut_area
+        return plan_area * H
+    
+    elif shape_code == 'C':
+        # Arc cut: V = (L×W - πr²×(θ/360)) × H
+        r = (arc_radius_cm or 0) / 100
+        theta = arc_angle_degrees or 90
+        cut_area = math.pi * r * r * (theta / 360)
+        plan_area = L * W - cut_area
+        return plan_area * H
+    
+    elif shape_code == 'K':
+        # Drilled hole: V = L×W×H - n×π(d/2)²×h
+        base_volume = L * W * H
+        n = hole_count or 0
+        d = (hole_diameter_cm or 0) / 100
+        h = (hole_depth_cm or height_cm) / 100  # Default to full depth
+        hole_volume = n * math.pi * (d / 2) ** 2 * h
+        return base_volume - hole_volume
+    
+    elif shape_code == 'T':
+        # Cylinder: V = π(d/2)²×H or π(Ro²-Ri²)×H for hollow
+        if outer_radius_cm and inner_radius_cm:
+            # Hollow cylinder
+            Ro = outer_radius_cm / 100
+            Ri = inner_radius_cm / 100
+            return math.pi * (Ro ** 2 - Ri ** 2) * H
+        else:
+            # Solid cylinder - use width as diameter
+            d = W  # Already in meters
+            return math.pi * (d / 2) ** 2 * H
+    
+    elif shape_code == 'B':
+        # Set/kit: Use standard volume as approximation
+        # Real calculation requires bill of materials
+        return L * W * H
+    
+    elif shape_code == 'V':
+        # Ring: V = π(Ro²-Ri²)×H×(θ/360)
+        Ro = (outer_radius_cm or width_cm / 2) / 100
+        Ri = (inner_radius_cm or 0) / 100
+        theta = arc_angle_degrees or 360  # Full ring by default
+        return math.pi * (Ro ** 2 - Ri ** 2) * H * (theta / 360)
+    
+    else:
+        # Unknown shape: use rectangular volume
+        return L * W * H
+
+
+# Shape-specific input configuration
+SPECIAL_SHAPE_INPUTS = {
+    'R': {
+        'name_vn': 'Hình chữ nhật',
+        'name_en': 'Rectangular (Standard)',
+        'inputs': [],  # No additional inputs for standard rectangular
+        'formula': 'V = L × W × H',
+    },
+    'L': {
+        'name_vn': 'Cắt chữ L',
+        'name_en': 'L-Shape',
+        'inputs': [
+            {'key': 'wall_thickness_cm', 'label': 'Độ dày thành (t)', 'unit': 'cm', 'default': 3.0, 'min': 0.5, 'max': 20.0},
+        ],
+        'formula': 'V = L × (t×W + t×H - t²)',
+    },
+    'U': {
+        'name_vn': 'Cắt chữ U',
+        'name_en': 'U-Profile',
+        'inputs': [
+            {'key': 'wall_thickness_cm', 'label': 'Độ dày thành (t)', 'unit': 'cm', 'default': 3.0, 'min': 0.5, 'max': 20.0},
+        ],
+        'formula': 'V = L × (W×H - (W-2t)(H-t))',
+    },
+    'G': {
+        'name_vn': 'Cắt góc vuông',
+        'name_en': 'Corner Cut',
+        'inputs': [
+            {'key': 'cut_leg_a_cm', 'label': 'Cạnh cắt A', 'unit': 'cm', 'default': 5.0, 'min': 0.1, 'max': 100.0},
+            {'key': 'cut_leg_b_cm', 'label': 'Cạnh cắt B', 'unit': 'cm', 'default': 5.0, 'min': 0.1, 'max': 100.0},
+        ],
+        'formula': 'V = (L×W - ½ab) × H',
+    },
+    'C': {
+        'name_vn': 'Cắt vòng cung',
+        'name_en': 'Arc Cut',
+        'inputs': [
+            {'key': 'arc_radius_cm', 'label': 'Bán kính cung (r)', 'unit': 'cm', 'default': 5.0, 'min': 0.1, 'max': 100.0},
+            {'key': 'arc_angle_degrees', 'label': 'Góc cung (θ)', 'unit': '°', 'default': 90.0, 'min': 1.0, 'max': 360.0},
+        ],
+        'formula': 'V = (L×W - πr²×θ/360) × H',
+    },
+    'K': {
+        'name_vn': 'Lỗ khoan',
+        'name_en': 'Drilled Hole',
+        'inputs': [
+            {'key': 'hole_count', 'label': 'Số lỗ (n)', 'unit': '', 'default': 1, 'min': 1, 'max': 100, 'step': 1},
+            {'key': 'hole_diameter_cm', 'label': 'Đường kính lỗ (d)', 'unit': 'cm', 'default': 2.0, 'min': 0.1, 'max': 50.0},
+            {'key': 'hole_depth_cm', 'label': 'Độ sâu lỗ (h)', 'unit': 'cm', 'default': None, 'min': 0.1, 'max': 100.0},
+        ],
+        'formula': 'V = L×W×H - n×π(d/2)²×h',
+    },
+    'T': {
+        'name_vn': 'Hình trụ',
+        'name_en': 'Cylinder',
+        'inputs': [
+            {'key': 'outer_radius_cm', 'label': 'Bán kính ngoài (Ro)', 'unit': 'cm', 'default': None, 'min': 0.1, 'max': 100.0},
+            {'key': 'inner_radius_cm', 'label': 'Bán kính trong (Ri)', 'unit': 'cm', 'default': 0, 'min': 0, 'max': 100.0},
+        ],
+        'formula': 'V = π(Ro²-Ri²)×H',
+    },
+    'B': {
+        'name_vn': 'Đá bộ',
+        'name_en': 'Set/Kit',
+        'inputs': [],  # No additional inputs - uses raw prices
+        'formula': 'V = ΣVi×qi (sum of components)',
+        'note': 'Sử dụng giá gốc, không chuẩn hóa thể tích',
+    },
+    'V': {
+        'name_vn': 'Đá vành',
+        'name_en': 'Ring Stone',
+        'inputs': [
+            {'key': 'outer_radius_cm', 'label': 'Bán kính ngoài (Ro)', 'unit': 'cm', 'default': None, 'min': 0.1, 'max': 200.0},
+            {'key': 'inner_radius_cm', 'label': 'Bán kính trong (Ri)', 'unit': 'cm', 'default': 0, 'min': 0, 'max': 200.0},
+            {'key': 'arc_angle_degrees', 'label': 'Góc cung (θ)', 'unit': '°', 'default': 360.0, 'min': 1.0, 'max': 360.0},
+        ],
+        'formula': 'V = π(Ro²-Ri²)×H×(θ/360)',
+    },
+}
 
 
 def calculate_weight_tons(volume_m3: float, stone_color_type: str, processing_code: str = None,
@@ -2109,6 +2317,7 @@ class SimilarityPricePredictor:
         no_length_limit: bool = False,  # For P3: unlimited length
         billing_country: str = None,  # For P1 market: specific country
         selected_processing_group: str = None,  # For P2: user-selected processing group
+        special_shape: str = None,  # Special shape code (L, U, G, etc.)
     ) -> pd.DataFrame:
         """
         Find matching products based on priority criteria from notes.md.
@@ -2172,6 +2381,15 @@ class SimilarityPricePredictor:
             if customer_regional_group and 'customer_regional_group' in df.columns:
                 mask &= df['customer_regional_group'] == customer_regional_group
         # Ưu tiên 3: No filter (All markets)
+        
+        # 6. Special Shape Filter (for special products like L-cut, U-profile, etc.)
+        # SKU format: XX##XXX#-####Y### where Y at position after dash indicates shape
+        if special_shape and 'sku' in df.columns:
+            # Filter products that have the special shape code in their SKU
+            # The shape code appears after the dash in the dimension section (position ~13)
+            # Examples: BX6.0DOC1-10040UL10/3 (U=U-profile), BD4.1DOX0-1000350L30 (L=L-cut)
+            shape_mask = df['sku'].str.contains(f'-\\d{{4,}}.*{special_shape}', case=False, na=False, regex=True)
+            mask &= shape_mask
         
         # Apply initial filters
         df_filtered = df[mask].copy()
@@ -2342,7 +2560,8 @@ class SimilarityPricePredictor:
     
     def estimate_price(self, matches: pd.DataFrame, use_recent_only: bool = True, recent_count: int = 10,
                         query_length_cm: float = None, query_width_cm: float = None, query_height_cm: float = None,
-                        target_charge_unit: str = 'USD/M3', stone_color_type: str = None, processing_code: str = None) -> Dict[str, Any]:
+                        target_charge_unit: str = 'USD/M3', stone_color_type: str = None, processing_code: str = None,
+                        special_shape: str = None, shape_params: Dict[str, float] = None) -> Dict[str, Any]:
         """
         Estimate price from matching products.
         Uses recency-weighted average, optionally filtering to most recent products.
@@ -2351,6 +2570,9 @@ class SimilarityPricePredictor:
         different product sizes. Then converts back to target_charge_unit using 
         query dimensions. This ensures that larger products are priced proportionally 
         higher than smaller similar products.
+        
+        For special shapes (L, U, G, C, K, T, V), uses the shape-specific volume 
+        calculation formulas instead of standard L×W×H.
         
         Args:
             matches: DataFrame of matching products
@@ -2362,6 +2584,8 @@ class SimilarityPricePredictor:
             target_charge_unit: The unit to return the price in (USD/PC, USD/M2, USD/M3, USD/TON)
             stone_color_type: Stone type for TLR calculation
             processing_code: Processing code for TLR/HS calculation
+            special_shape: Optional special shape code (L, U, G, C, K, T, B, V)
+            shape_params: Optional dict of shape-specific parameters (wall_thickness_cm, etc.)
         """
         if len(matches) == 0:
             return {
@@ -2453,31 +2677,60 @@ class SimilarityPricePredictor:
             query_tlr = get_tlr(stone_color_type or 'ABSOLUTE BASALT', processing_code)
             query_hs = get_hs_factor((query_length_cm, query_width_cm, query_height_cm), processing_code)
             
-            estimated_price = convert_price(
-                weighted_price_m3, 'USD/M3', target_charge_unit,
-                height_cm=query_height_cm,
-                length_cm=query_length_cm,
-                width_cm=query_width_cm,
-                tlr=query_tlr,
-                hs=query_hs
-            )
+            # Calculate volume for the query product
+            # For special shapes, use shape-specific volume calculation
+            if special_shape and special_shape in SPECIAL_SHAPE_INPUTS:
+                params = shape_params or {}
+                query_volume_m3 = calculate_special_shape_volume_m3(
+                    shape_code=special_shape,
+                    length_cm=query_length_cm,
+                    width_cm=query_width_cm,
+                    height_cm=query_height_cm,
+                    **params
+                )
+            else:
+                # Standard rectangular volume
+                query_volume_m3 = calculate_volume_m3(query_length_cm, query_width_cm, query_height_cm)
             
-            # Also convert min/max/median to target unit
-            min_price = convert_price(
-                prices_m3.min(), 'USD/M3', target_charge_unit,
-                height_cm=query_height_cm, length_cm=query_length_cm, width_cm=query_width_cm,
-                tlr=query_tlr, hs=query_hs
-            )
-            max_price = convert_price(
-                prices_m3.max(), 'USD/M3', target_charge_unit,
-                height_cm=query_height_cm, length_cm=query_length_cm, width_cm=query_width_cm,
-                tlr=query_tlr, hs=query_hs
-            )
-            median_price = convert_price(
-                prices_m3.median(), 'USD/M3', target_charge_unit,
-                height_cm=query_height_cm, length_cm=query_length_cm, width_cm=query_width_cm,
-                tlr=query_tlr, hs=query_hs
-            )
+            # Convert using the calculated volume (handles special shapes correctly)
+            # For USD/M3 to target, we multiply by volume then convert units
+            if target_charge_unit == 'USD/M3':
+                estimated_price = weighted_price_m3
+            elif target_charge_unit == 'USD/PC':
+                # Price per piece = price/m3 × volume_m3
+                estimated_price = weighted_price_m3 * query_volume_m3
+            elif target_charge_unit == 'USD/M2':
+                # Price per m2 = price/m3 × height_m
+                query_height_m = query_height_cm / 100
+                estimated_price = weighted_price_m3 * query_height_m
+            elif target_charge_unit == 'USD/TON':
+                # Price per ton = price/m3 × (1 / (TLR × HS))
+                estimated_price = weighted_price_m3 / (query_tlr * query_hs)
+            else:
+                estimated_price = weighted_price_m3
+            
+            # Calculate min/max/median using same volume conversion
+            if target_charge_unit == 'USD/M3':
+                min_price = prices_m3.min()
+                max_price = prices_m3.max()
+                median_price = prices_m3.median()
+            elif target_charge_unit == 'USD/PC':
+                min_price = prices_m3.min() * query_volume_m3
+                max_price = prices_m3.max() * query_volume_m3
+                median_price = prices_m3.median() * query_volume_m3
+            elif target_charge_unit == 'USD/M2':
+                query_height_m = query_height_cm / 100
+                min_price = prices_m3.min() * query_height_m
+                max_price = prices_m3.max() * query_height_m
+                median_price = prices_m3.median() * query_height_m
+            elif target_charge_unit == 'USD/TON':
+                min_price = prices_m3.min() / (query_tlr * query_hs)
+                max_price = prices_m3.max() / (query_tlr * query_hs)
+                median_price = prices_m3.median() / (query_tlr * query_hs)
+            else:
+                min_price = prices_m3.min()
+                max_price = prices_m3.max()
+                median_price = prices_m3.median()
         else:
             # Fallback: use original method (direct averaging) if no query dimensions
             prices = matches['sales_price']
@@ -2705,7 +2958,7 @@ def main():
     
     # Tab 1: Price Prediction
     with tab1:
-        st.subheader("🔮 Ước tính giá sản phẩm (Similarity-Based)")
+        st.subheader("🔮 Dự đoán giá sản phẩm (Similarity-Based)")
         
         col1, col2 = st.columns([1, 1])
         
@@ -2756,6 +3009,60 @@ def main():
                 default=[],
                 help="Chọn một hoặc nhiều ứng dụng. Để trống = Tất cả"
             )
+            
+            # 5.5 Special Shape (shown when checkbox is checked)
+            is_special_product = st.checkbox(
+                "🔷 Sản phẩm đặc biệt (Special Shape)",
+                value=False,
+                help="Chọn nếu sản phẩm có hình dạng đặc biệt như chữ U, chữ L, cắt góc, v.v."
+            )
+            
+            selected_special_shape = None
+            shape_params = {}
+            if is_special_product:
+                special_shape_lookup = {code: f"{code} - {vn} ({en})" for code, vn, en in SPECIAL_SHAPES}
+                selected_special_shape = st.selectbox(
+                    "Loại hình dạng đặc biệt",
+                    options=[code for code, vn, en in SPECIAL_SHAPES],
+                    format_func=lambda x: special_shape_lookup.get(x, x),
+                    help="Chọn loại hình dạng đặc biệt của sản phẩm"
+                )
+                
+                
+                # Dynamic shape-specific inputs based on SPECIAL_SHAPE_INPUTS config
+                shape_params = {}
+                shape_config = SPECIAL_SHAPE_INPUTS.get(selected_special_shape, {})
+                if shape_config.get('inputs'):
+                    st.markdown("##### 📐 Thông số hình dạng đặc biệt")
+                    for input_def in shape_config['inputs']:
+                        input_key = input_def['key']
+                        label = f"{input_def['label']} ({input_def['unit']})" if input_def['unit'] else input_def['label']
+                        
+                        # Use integer step for hole_count, float for others
+                        if input_key == 'hole_count':
+                            shape_params[input_key] = st.number_input(
+                                label,
+                                min_value=int(input_def['min']),
+                                max_value=int(input_def['max']),
+                                value=int(input_def['default'] or 1),
+                                step=1,
+                                key=f"special_input_{input_key}"
+                            )
+                        else:
+                            shape_params[input_key] = st.number_input(
+                                label,
+                                min_value=float(input_def['min']),
+                                max_value=float(input_def['max']),
+                                value=float(input_def['default'] or input_def['min']),
+                                step=0.5,
+                                key=f"special_input_{input_key}"
+                            )
+                
+                # Show formula and note for selected shape
+                formula = shape_config.get('formula', 'V = L×W×H')
+                note = shape_config.get('note', '')
+                st.info(f"ℹ️ **{shape_config.get('name_vn', selected_special_shape)}** ({shape_config.get('name_en', '')})\n\n"
+                        f"Công thức thể tích: `{formula}`" + (f"\n\n*{note}*" if note else ""))
             
             # 6. Đơn vị tính (Unit) - SIXTH
             charge_unit = st.selectbox("Đơn vị tính giá", CHARGE_UNITS)
@@ -2930,6 +3237,7 @@ def main():
                 no_length_limit=no_length_limit,
                 billing_country=billing_country_selected,
                 selected_processing_group=selected_processing_group,
+                special_shape=selected_special_shape,
             )
             
             # Store matches in session state to persist across reruns
@@ -2944,7 +3252,9 @@ def main():
                 query_height_cm=height,
                 target_charge_unit=charge_unit,
                 stone_color_type=stone_color,
-                processing_code=processing_code
+                processing_code=processing_code,
+                special_shape=selected_special_shape,
+                shape_params=shape_params
             )
             
             # Store estimation and query params in session state to persist across reruns
