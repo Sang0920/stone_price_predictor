@@ -1294,9 +1294,10 @@ def generate_3d_textured_cuboid(length_cm: float, width_cm: float, height_cm: fl
             with open(texture_path, 'rb') as f:
                 img_data = base64.b64encode(f.read()).decode('utf-8')
                 face_textures[face] = f"data:image/png;base64,{img_data}"
-        except:
+        except Exception as e:
             # Fallback to color if texture not found
             face_textures[face] = None
+            print(f"Warning: Could not load texture for {face}: {e}")
     
     # Get processing lookup for labels
     proc_lookup = {code: (eng, vn) for code, eng, vn in PROCESSING_CODES}
@@ -1322,24 +1323,45 @@ def generate_3d_textured_cuboid(length_cm: float, width_cm: float, height_cm: fl
     
     # Three.js HTML with textures
     html = f'''
-    <div id="threejs-container" style="width:100%;height:400px;position:relative;background:linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);border-radius:12px;overflow:hidden;">
-        <div style="position:absolute;top:10px;left:10px;background:rgba(255,255,255,0.95);padding:10px;border-radius:8px;z-index:10;max-width:200px;">
-            <div style="font-weight:bold;margin-bottom:5px;font-size:13px;">📦 Kích thước</div>
-            <div style="font-size:12px;">Dài: {length_cm}cm × Rộng: {width_cm}cm × Cao: {height_cm}cm</div>
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            body {{ margin: 0; padding: 0; overflow: hidden; }}
+            #threejs-container {{ width: 100%; height: 450px; position: relative; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); }}
+            .info-panel {{ position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,0.95); padding: 10px; border-radius: 8px; z-index: 10; max-width: 200px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }}
+            .info-title {{ font-weight: bold; margin-bottom: 5px; font-size: 13px; color: #333; }}
+            .info-text {{ font-size: 12px; color: #555; }}
+            .hint {{ position: absolute; bottom: 10px; right: 10px; background: rgba(255,255,255,0.8); padding: 5px 10px; border-radius: 5px; font-size: 11px; z-index: 10; }}
+            #loading {{ position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 16px; z-index: 5; }}
+        </style>
+    </head>
+    <body>
+        <div id="loading">⏳ Loading 3D model...</div>
+        <div id="threejs-container"></div>
+        <div class="info-panel">
+            <div class="info-title">📦 Kích thước</div>
+            <div class="info-text">Dài: {length_cm}cm × Rộng: {width_cm}cm × Cao: {height_cm}cm</div>
             <hr style="margin:8px 0;border:none;border-top:1px solid #ddd;">
-            <div style="font-weight:bold;margin-bottom:5px;font-size:13px;">🎨 Gia công</div>
+            <div class="info-title">🎨 Gia công</div>
             {legend_html}
         </div>
-        <div style="position:absolute;bottom:10px;right:10px;background:rgba(255,255,255,0.8);padding:5px 10px;border-radius:5px;font-size:11px;z-index:10;">
-            🖱️ Kéo để xoay | Cuộn để zoom
-        </div>
-    </div>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script>
-    (function() {{
+        <div class="hint">🖱️ Kéo để xoay | Cuộn để zoom</div>
+        
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+        <script>
+        (function() {{
+            // Wait for Three.js to load
+            if (typeof THREE === 'undefined') {{
+                setTimeout(arguments.callee, 50);
+                return;
+            }}
+            
+            document.getElementById('loading').style.display = 'none';
         const container = document.getElementById('threejs-container');
-        const width = container.clientWidth;
-        const height = 400;
+        const width = container.clientWidth || 800;
+        const height = 450;
         
         // Scene setup
         const scene = new THREE.Scene();
@@ -1478,9 +1500,21 @@ def generate_3d_textured_cuboid(length_cm: float, width_cm: float, height_cm: fl
             
             renderer.render(scene, camera);
         }}
+        
+        // Start animation
         animate();
+        
+        // Handle window resize
+        window.addEventListener('resize', function() {{
+            const newWidth = container.clientWidth;
+            camera.aspect = newWidth / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(newWidth, height);
+        }});
     }})();
     </script>
+    </body>
+    </html>
     '''
     
     return html
