@@ -1897,7 +1897,8 @@ def calculate_multi_surface_price(
     length_cm: float,
     width_cm: float, 
     height_cm: float,
-    stone_color_type: str
+    stone_color_type: str,
+    custom_volume_m3: float = None
 ) -> Dict[str, Any]:
     """
     Calculate price for an object with different processing on each surface.
@@ -1907,6 +1908,7 @@ def calculate_multi_surface_price(
         surface_processing: Dict with keys 'top', 'bottom', 'front', 'back', 'left', 'right'
         length_cm, width_cm, height_cm: Dimensions
         stone_color_type: Stone type
+        custom_volume_m3: Optional custom volume (from STL or special shape calculation)
     
     Returns:
         Dict with price breakdown
@@ -1922,7 +1924,9 @@ def calculate_multi_surface_price(
     }
     
     total_surface_area = sum(surface_areas.values())
-    volume_m3 = calculate_volume_m3(length_cm, width_cm, height_cm)
+    
+    # Use custom volume if provided (from STL or special shape), otherwise calculate
+    volume_m3 = custom_volume_m3 if custom_volume_m3 is not None else calculate_volume_m3(length_cm, width_cm, height_cm)
     
     # Processing complexity factors (higher = more expensive)
     processing_factors = {
@@ -3044,60 +3048,6 @@ def main():
                 help="Chọn một hoặc nhiều ứng dụng. Để trống = Tất cả"
             )
             
-            # 5.5 Special Shape (shown when checkbox is checked)
-            is_special_product = st.checkbox(
-                "🔷 Sản phẩm đặc biệt (Special Shape)",
-                value=False,
-                help="Chọn nếu sản phẩm có hình dạng đặc biệt như chữ U, chữ L, cắt góc, v.v."
-            )
-            
-            selected_special_shape = None
-            shape_params = {}
-            if is_special_product:
-                special_shape_lookup = {code: f"{code} - {vn} ({en})" for code, vn, en in SPECIAL_SHAPES}
-                selected_special_shape = st.selectbox(
-                    "Loại hình dạng đặc biệt",
-                    options=[code for code, vn, en in SPECIAL_SHAPES],
-                    format_func=lambda x: special_shape_lookup.get(x, x),
-                    help="Chọn loại hình dạng đặc biệt của sản phẩm"
-                )
-                
-                
-                # Dynamic shape-specific inputs based on SPECIAL_SHAPE_INPUTS config
-                shape_params = {}
-                shape_config = SPECIAL_SHAPE_INPUTS.get(selected_special_shape, {})
-                if shape_config.get('inputs'):
-                    st.markdown("##### 📐 Thông số hình dạng đặc biệt")
-                    for input_def in shape_config['inputs']:
-                        input_key = input_def['key']
-                        label = f"{input_def['label']} ({input_def['unit']})" if input_def['unit'] else input_def['label']
-                        
-                        # Use integer step for hole_count, float for others
-                        if input_key == 'hole_count':
-                            shape_params[input_key] = st.number_input(
-                                label,
-                                min_value=int(input_def['min']),
-                                max_value=int(input_def['max']),
-                                value=int(input_def['default'] or 1),
-                                step=1,
-                                key=f"special_input_{input_key}"
-                            )
-                        else:
-                            shape_params[input_key] = st.number_input(
-                                label,
-                                min_value=float(input_def['min']),
-                                max_value=float(input_def['max']),
-                                value=float(input_def['default'] or input_def['min']),
-                                step=0.5,
-                                key=f"special_input_{input_key}"
-                            )
-                
-                # Show formula and note for selected shape
-                formula = shape_config.get('formula', 'V = L×W×H')
-                note = shape_config.get('note', '')
-                st.info(f"ℹ️ **{shape_config.get('name_vn', selected_special_shape)}** ({shape_config.get('name_en', '')})\n\n"
-                        f"Công thức thể tích: `{formula}`" + (f"\n\n*{note}*" if note else ""))
-            
             # 6. Đơn vị tính (Unit) - SIXTH
             charge_unit = st.selectbox("Đơn vị tính giá", CHARGE_UNITS)
             
@@ -3271,7 +3221,6 @@ def main():
                 no_length_limit=no_length_limit,
                 billing_country=billing_country_selected,
                 selected_processing_group=selected_processing_group,
-                special_shape=selected_special_shape,
             )
             
             # Store matches in session state to persist across reruns
@@ -3286,9 +3235,7 @@ def main():
                 query_height_cm=height,
                 target_charge_unit=charge_unit,
                 stone_color_type=stone_color,
-                processing_code=processing_code,
-                special_shape=selected_special_shape,
-                shape_params=shape_params
+                processing_code=processing_code
             )
             
             # Store estimation and query params in session state to persist across reruns
@@ -4186,6 +4133,100 @@ def main():
             
             st.divider()
             
+            # Special Shape Selection
+            st.markdown("#### 🔷 Hình dạng đặc biệt (Special Shape)")
+            
+            special_shape_lookup = {code: f"{code} - {vn} ({en})" for code, vn, en in SPECIAL_SHAPES}
+            adv_special_shape = st.selectbox(
+                "Loại hình dạng",
+                options=['R'] + [code for code, vn, en in SPECIAL_SHAPES if code != 'R'],
+                format_func=lambda x: special_shape_lookup.get(x, x) if x in special_shape_lookup else "R - Hình chữ nhật (Rectangular)",
+                key="adv_special_shape",
+                help="Chọn hình dạng sản phẩm. R = Hình chữ nhật tiêu chuẩn"
+            )
+            
+            # Shape-specific inputs
+            adv_shape_params = {}
+            shape_config = SPECIAL_SHAPE_INPUTS.get(adv_special_shape, {})
+            if shape_config.get('inputs'):
+                st.markdown("##### 📐 Thông số hình dạng")
+                for input_def in shape_config['inputs']:
+                    input_key = input_def['key']
+                    label = f"{input_def['label']} ({input_def['unit']})" if input_def['unit'] else input_def['label']
+                    
+                    if input_key == 'hole_count':
+                        adv_shape_params[input_key] = st.number_input(
+                            label,
+                            min_value=int(input_def['min']),
+                            max_value=int(input_def['max']),
+                            value=int(input_def['default'] or 1),
+                            step=1,
+                            key=f"adv_special_{input_key}"
+                        )
+                    else:
+                        adv_shape_params[input_key] = st.number_input(
+                            label,
+                            min_value=float(input_def['min']),
+                            max_value=float(input_def['max']),
+                            value=float(input_def['default'] or input_def['min']),
+                            step=0.5,
+                            key=f"adv_special_{input_key}"
+                        )
+            
+            # Show formula for selected shape
+            if shape_config:
+                formula = shape_config.get('formula', 'V = L×W×H')
+                note = shape_config.get('note', '')
+                st.info(f"📏 *{formula}*" + (f"\n\n{note}" if note else ""))
+            
+            # STL File Upload for automatic volume calculation
+            st.markdown("##### 📁 Hoặc tải file STL")
+            uploaded_stl = st.file_uploader(
+                "Tải file STL để tính thể tích tự động",
+                type=['stl'],
+                key="stl_upload",
+                help="Tải lên file STL 3D để tính thể tích chính xác. Đơn vị file: mm"
+            )
+            
+            adv_volume_m3 = None
+            if uploaded_stl is not None:
+                try:
+                    import tempfile
+                    from stl import mesh
+                    
+                    # Save to temp file and load
+                    with tempfile.NamedTemporaryFile(suffix='.stl', delete=False) as tmp:
+                        tmp.write(uploaded_stl.getvalue())
+                        tmp_path = tmp.name
+                    
+                    stl_mesh = mesh.Mesh.from_file(tmp_path)
+                    volume, cog, inertia = stl_mesh.get_mass_properties()
+                    adv_volume_m3 = abs(volume) / 1e9  # mm³ to m³
+                    
+                    st.success(f"✅ Thể tích từ STL: **{adv_volume_m3:.6f} m³** ({abs(volume):,.0f} mm³)")
+                    
+                    # Cleanup temp file
+                    import os
+                    os.unlink(tmp_path)
+                except Exception as e:
+                    st.error(f"❌ Lỗi đọc file STL: {e}")
+            else:
+                # Calculate volume from shape
+                if adv_special_shape and adv_special_shape != 'R':
+                    adv_volume_m3 = calculate_special_shape_volume_m3(
+                        shape_code=adv_special_shape,
+                        length_cm=adv_length,
+                        width_cm=adv_width,
+                        height_cm=adv_height,
+                        **adv_shape_params
+                    )
+                else:
+                    adv_volume_m3 = calculate_volume_m3(adv_length, adv_width, adv_height)
+                
+                st.metric("Thể tích ước tính", f"{adv_volume_m3:.6f} m³")
+            
+            st.divider()
+            
             # 6-Surface Processing Selection
             st.markdown("#### 🔧 Gia công từng mặt")
             
@@ -4303,6 +4344,7 @@ def main():
                 charge_unit='USD/M3',
                 dimension_priority='Ưu tiên 3 - Sai lệch lớn',
                 region_priority='Ưu tiên 3',
+                special_shape=adv_special_shape if adv_special_shape != 'R' else None,
             )
             
             if len(matches) > 0:
@@ -4313,21 +4355,25 @@ def main():
                     query_height_cm=adv_height,
                     target_charge_unit='USD/M3',
                     stone_color_type=adv_stone_color,
-                    processing_code=main_proc
+                    processing_code=main_proc,
+                    special_shape=adv_special_shape if adv_special_shape != 'R' else None,
+                    shape_params=adv_shape_params if adv_special_shape != 'R' else None
                 )
                 base_price_m3 = base_estimation.get('price_m3', 500)  # Default if not available
             else:
                 base_price_m3 = 500  # Default base price
                 st.warning("⚠️ Không tìm thấy sản phẩm tham khảo. Sử dụng giá cơ sở mặc định.")
             
-            # Calculate multi-surface price
+            # Calculate multi-surface price using the accurate volume 
+            # (either from STL or shape calculation)
             price_result = calculate_multi_surface_price(
                 base_price_m3=base_price_m3,
                 surface_processing=surface_processing,
                 length_cm=adv_length,
                 width_cm=adv_width,
                 height_cm=adv_height,
-                stone_color_type=adv_stone_color
+                stone_color_type=adv_stone_color,
+                custom_volume_m3=adv_volume_m3  # Use calculated/STL volume
             )
             
             # Apply customer adjustment
