@@ -1989,6 +1989,119 @@ def calculate_multi_surface_price(
 
 
 
+def display_estimation_result(
+    estimation: Dict[str, Any],
+    price_info: Dict[str, Any],
+    charge_unit: str,
+    customer_type: str,
+    conf_color: str,
+    text_color: str,
+    conf_label: str,
+    apply_yearly_adjustment: bool = False,
+    yearly_increase_pct: float = 0,
+    is_manual: bool = False,
+    manual_count: int = 0,
+):
+    """
+    DRY helper function to display estimation results consistently across all 3 sections:
+    - Main search (predict_btn)
+    - Cached results (last_estimation)
+    - Manual recalculation (manual_estimation)
+    
+    Returns the yearly_adj_info dict for use in report generation.
+    """
+    from datetime import datetime
+    
+    # === Calculate final prices with adjustments ===
+    final_price = (price_info['min_price'] + price_info['max_price']) / 2
+    final_min = price_info['min_price']
+    final_max = price_info['max_price']
+    
+    # Yearly adjustment calculation
+    year_adjustment_note = ""
+    yearly_adj_info = None
+    if apply_yearly_adjustment and yearly_increase_pct > 0:
+        current_year = datetime.now().year
+        avg_fy_year = estimation.get('avg_fy_year', current_year)
+        if avg_fy_year and avg_fy_year < current_year:
+            years_diff = current_year - int(avg_fy_year)
+            adjustment_factor = (1 + yearly_increase_pct / 100) ** years_diff
+            final_price *= adjustment_factor
+            final_min *= adjustment_factor
+            final_max *= adjustment_factor
+            year_adjustment_note = f" (+{yearly_increase_pct:.1f}%/năm × {years_diff} năm)"
+            yearly_adj_info = {
+                'applied': True,
+                'rate': yearly_increase_pct,
+                'avg_year': avg_fy_year,
+                'years_diff': years_diff,
+                'adjusted_price': final_price,
+            }
+    
+    # === Display Price Card ===
+    title_suffix = " (từ sản phẩm đã chọn)" if is_manual else ""
+    st.markdown(f"#### 💰 Giá cuối cùng cho khách hàng loại {customer_type}{title_suffix}")
+    
+    manual_info_line = f'<p style="color: {text_color}; margin: 5px 0;">📦 Số mẫu: {manual_count} sản phẩm được chọn</p>' if is_manual else ""
+    
+    st.markdown(f"""
+    <div style="background-color: {conf_color}; padding: 20px; border-radius: 10px; margin-bottom: 10px;">
+        <p style="color: {text_color}; margin: 0; font-size: 1.1em; font-weight: bold;">💵 Giá đề xuất ({charge_unit}):</p>
+        <h1 style="color: {text_color}; margin: 5px 0; font-size: 3.5em;">${final_price:,.2f}</h1>
+        <p style="color: {text_color}; margin: 0; font-size: 0.9em;">Khoảng giá: <b>${final_min:,.2f}</b> – <b>${final_max:,.2f}</b></p>
+        <hr style="margin: 10px 0; border-top: 1px solid rgba(0,0,0,0.2);">
+        <p style="color: {text_color}; margin: 5px 0;">👤 {price_info['customer_description']}</p>
+        <p style="color: {text_color}; margin: 5px 0;">📊 Điều chỉnh: {price_info['adjustment_label']}{year_adjustment_note}</p>
+        <p style="color: {text_color}; margin: 5px 0;">🎯 Quyền tự quyết: {price_info['authority_range']}</p>
+        <p style="color: {text_color}; margin: 5px 0;">📈 Độ tin cậy: {conf_label}</p>
+        {manual_info_line}
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # === Display Expander with Details ===
+    expander_title = "📋 Chi tiết ước tính cơ bản" + (" (từ sản phẩm đã chọn)" if is_manual else "")
+    with st.expander(expander_title, expanded=False):
+        col_detail1, col_detail2 = st.columns(2)
+        with col_detail1:
+            st.markdown("**💰 Giá gốc (Base Price):**")
+            st.markdown(f"• Giá trung bình: **${estimation['estimated_price']:,.2f}** ({charge_unit})")
+            st.markdown(f"• Khoảng giá: \\${estimation['min_price']:,.2f} - \\${estimation['max_price']:,.2f}")
+            st.markdown(f"• Giá trung vị: ${estimation.get('median_price', estimation['estimated_price']):,.2f}")
+            sample_count = manual_count if is_manual else estimation['match_count']
+            total_matches = estimation.get('total_matches', sample_count)
+            st.markdown(f"• Số mẫu sử dụng: **{sample_count}** / {total_matches}")
+            if estimation.get('years_used'):
+                st.markdown(f"• Năm dữ liệu: {estimation['years_used']}")
+            if estimation.get('price_trend'):
+                trend_pct = estimation.get('trend_pct', 0)
+                trend_emoji = '📈' if estimation['price_trend'] == 'up' else '📉'
+                trend_sign = '+' if estimation['price_trend'] == 'up' else '-'
+                st.markdown(f"• {trend_emoji} Xu hướng: {trend_sign}{abs(trend_pct):.1f}%")
+        
+        with col_detail2:
+            if estimation.get('confidence_breakdown'):
+                st.markdown("**📊 Độ tin cậy:**")
+                breakdown = estimation['confidence_breakdown']
+                factor_names = {
+                    'sample_count': 'Số mẫu',
+                    'recency': 'Độ mới',
+                    'dimensional': 'Kích thước',
+                    'stone_match': 'Loại đá',
+                    'processing_match': 'Gia công',
+                    'application_match': 'Ứng dụng',
+                    'charge_unit_match': 'Đơn vị',
+                    'priority_strictness': 'Tiêu chí',
+                }
+                for key, info in breakdown.items():
+                    name = factor_names.get(key, key)
+                    score = info.get('score', 0)
+                    value = info.get('value', '')
+                    value_str = f" ({value})" if value else ""
+                    st.markdown(f"• {name}: **{score:.0f}**{value_str}")
+    
+    return yearly_adj_info, final_price, final_min, final_max
+
+
 def calculate_customer_price(base_price: float, customer_type: str, 
                              segment: str = None, charge_unit: str = 'USD/M3') -> Dict[str, Any]:
     """
@@ -3505,76 +3618,18 @@ def main():
                     segment=segment, charge_unit=charge_unit
                 )
                 
-                # === Combined Final Price Card ===
-                st.markdown(f"#### 💰 Giá cuối cùng cho khách hàng loại {customer_type}")
-                
-                # Apply adjustment to customer price if yearly adjustment is enabled
-                final_price = (price_info['min_price'] + price_info['max_price']) / 2
-                final_min = price_info['min_price']
-                final_max = price_info['max_price']
-                
-                # Additional adjustment for years if applicable
-                year_adjustment_note = ""
-                if apply_yearly_adjustment and yearly_increase_pct > 0:
-                    current_year = datetime.now().year
-                    avg_fy_year = estimation.get('avg_fy_year', current_year)
-                    if avg_fy_year and avg_fy_year < current_year:
-                        years_diff = current_year - int(avg_fy_year)
-                        adjustment_factor = (1 + yearly_increase_pct / 100) ** years_diff
-                        final_price *= adjustment_factor
-                        final_min *= adjustment_factor
-                        final_max *= adjustment_factor
-                        year_adjustment_note = f" (+{yearly_increase_pct:.1f}%/năm × {years_diff} năm)"
-                
-                # Display combined result card
-                st.markdown(f"""
-                <div style="background-color: {conf_color}; padding: 20px; border-radius: 10px; margin-bottom: 10px;">
-                    <p style="color: {text_color}; margin: 0; font-size: 1.1em; font-weight: bold;">💵 Giá đề xuất ({charge_unit}):</p>
-                    <h1 style="color: {text_color}; margin: 5px 0; font-size: 3.5em;">${final_price:,.2f}</h1>
-                    <p style="color: {text_color}; margin: 0; font-size: 0.9em;">Khoảng giá: <b>${final_min:,.2f}</b> – <b>${final_max:,.2f}</b></p>
-                    <hr style="margin: 10px 0; border-top: 1px solid rgba(0,0,0,0.2);">
-                    <p style="color: {text_color}; margin: 5px 0;">👤 {price_info['customer_description']}</p>
-                    <p style="color: {text_color}; margin: 5px 0;">📊 Điều chỉnh: {price_info['adjustment_label']}{year_adjustment_note}</p>
-                    <p style="color: {text_color}; margin: 5px 0;">🎯 Quyền tự quyết: {price_info['authority_range']}</p>
-                    <p style="color: {text_color}; margin: 5px 0;">📈 Độ tin cậy: {conf_label}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Show base estimation info below the card
-                with st.expander("📋 Chi tiết ước tính cơ bản", expanded=False):
-                    col_detail1, col_detail2 = st.columns(2)
-                    with col_detail1:
-                        st.markdown(f"- **Giá gốc:** ${estimation['estimated_price']:,.2f}")
-                        st.markdown(f"- **Khoảng giá:** \\${estimation['min_price']:,.2f} - \\${estimation['max_price']:,.2f}")
-                        st.markdown(f"- **Giá trung vị:** ${estimation['median_price']:,.2f}")
-                        st.markdown(f"- **Số mẫu:** {estimation['match_count']} / {estimation.get('total_matches', estimation['match_count'])}")
-                        if estimation.get('years_used'):
-                            st.markdown(f"- **Năm:** {estimation['years_used']}")
-                        if estimation.get('price_trend'):
-                            trend_pct = estimation.get('trend_pct', 0)
-                            trend_emoji = '📈' if estimation['price_trend'] == 'up' else '📉'
-                            trend_sign = '+' if estimation['price_trend'] == 'up' else '-'
-                            st.markdown(f"- {trend_emoji} **Xu hướng:** {trend_sign}{abs(trend_pct):.1f}%")
-                    
-                    # Confidence breakdown in right column
-                    with col_detail2:
-                        if estimation.get('confidence_breakdown'):
-                            st.markdown("**📊 Phân tích độ tin cậy:**")
-                            breakdown = estimation['confidence_breakdown']
-                            factor_names = {
-                                'sample_count': 'Số mẫu',
-                                'recency': 'Độ mới',
-                                'dimensional': 'Kích thước',
-                                'stone_match': 'Đá',
-                                'processing_match': 'Gia công',
-                                'application_match': 'Ứng dụng',
-                                'charge_unit_match': 'Đơn vị',
-                                'priority_strictness': 'Tiêu chí',
-                            }
-                            for key, info in breakdown.items():
-                                name = factor_names.get(key, key)
-                                score = info.get('score', 0)
-                                st.markdown(f"- {name}: **{score:.0f}**")
+                # === Display estimation result using DRY helper ===
+                yearly_adj_info, final_price, final_min, final_max = display_estimation_result(
+                    estimation=estimation,
+                    price_info=price_info,
+                    charge_unit=charge_unit,
+                    customer_type=customer_type,
+                    conf_color=conf_color,
+                    text_color=text_color,
+                    conf_label=conf_label,
+                    apply_yearly_adjustment=apply_yearly_adjustment,
+                    yearly_increase_pct=yearly_increase_pct,
+                )
                 st.divider()
                 st.markdown("#### 📄 Xuất báo cáo")
                 
@@ -3591,22 +3646,7 @@ def main():
                     'customer_type': customer_type,
                 }
                 
-                # Prepare yearly adjustment info
-                yearly_adj_info = None
-                if apply_yearly_adjustment and yearly_increase_pct > 0:
-                    current_year = datetime.now().year
-                    avg_fy_year = estimation.get('avg_fy_year', current_year)
-                    if avg_fy_year and avg_fy_year < current_year:
-                        years_diff = current_year - int(avg_fy_year)
-                        adjustment_factor = (1 + yearly_increase_pct / 100) ** years_diff
-                        adjusted_price = estimation['estimated_price'] * adjustment_factor
-                        yearly_adj_info = {
-                            'applied': True,
-                            'rate': yearly_increase_pct,
-                            'avg_year': avg_fy_year,
-                            'years_diff': years_diff,
-                            'adjusted_price': adjusted_price,
-                        }
+                # yearly_adj_info is now returned by display_estimation_result()
                 
                 # Filter matches for report if use_recent_only is selected
                 matches_for_report = matches.copy()
@@ -3616,12 +3656,23 @@ def main():
                         matches_for_report['created_date'] = pd.to_datetime(matches_for_report['created_date'], errors='coerce')
                         matches_for_report = matches_for_report.sort_values('created_date', ascending=False).head(recent_count)
 
+                # CRITICAL FIX: Recalculate customer price based on yearly-adjusted price for report
+                # Step 5 (yearly adjustment) must flow into Step 6 (customer adjustment)
+                if yearly_adj_info and yearly_adj_info.get('applied'):
+                    adjusted_price = yearly_adj_info['adjusted_price']
+                    price_info_for_report = calculate_customer_price(
+                        adjusted_price, customer_type, 
+                        segment=segment, charge_unit=charge_unit
+                    )
+                else:
+                    price_info_for_report = price_info
+
                 # Generate HTML report
                 report_html = generate_price_report(
                     query_params=query_params,
                     estimation=estimation,
                     matched_products=matches_for_report,
-                    customer_price_info=price_info,
+                    customer_price_info=price_info_for_report,  # Use adjusted price_info
                     yearly_adjustment=yearly_adj_info,
                     priority_settings={
                         'stone_priority': stone_priority,
@@ -3676,15 +3727,38 @@ def main():
             hs = get_hs_factor((length, width, height), processing_code, first_app)
             weight_tons = calculate_weight_tons(volume_m3, stone_color, processing_code, (length, width, height), first_app)
             
+            # Calculate price segment based on estimation
+            estimated_price_m3 = estimation.get('estimated_price_m3', 0) if estimation else 0
+            if estimated_price_m3 == 0 and estimation and estimation.get('estimated_price'):
+                # Fallback calculation if price_m3 not directly available
+                if volume_m3 > 0:
+                    estimated_price_m3 = estimation['estimated_price'] / volume_m3 if charge_unit == 'USD/M3' else estimation['estimated_price'] / volume_m3
+            
+            product_segment = classify_segment(estimated_price_m3, height, stone_color, processing_code)
+            segment_color = get_segment_color(product_segment)
+            segment_vn = {
+                'Super premium': 'Siêu cao cấp',
+                'Premium': 'Cao cấp', 
+                'Common': 'Phổ thông',
+                'Economy': 'Kinh tế'
+            }.get(product_segment, product_segment)
+            
             col_info1, col_info2 = st.columns(2)
             with col_info1:
                 st.markdown(f"- Kích thước: {length} x {width} x {height} cm")
                 st.markdown(f"- Thể tích: {volume_m3:.6f} m³")
                 st.markdown(f"- Diện tích: {area_m2:.4f} m²")
+                # Price Segment with color badge
+                st.markdown(f"- Phân khúc giá: <span style='background-color:{segment_color}; color:white; padding:2px 8px; border-radius:4px; font-weight:bold'>{segment_vn}</span>", unsafe_allow_html=True)
             with col_info2:
                 st.markdown(f"- TLR: {tlr} tấn/m³")
                 st.markdown(f"- HS: {hs}")
                 st.markdown(f"- Khối lượng: **{weight_tons:.4f} tấn**")
+                # Show customer adjustment info for segment
+                if customer_type:
+                    customer_info = calculate_customer_price(estimation['estimated_price'] if estimation else 0, customer_type, product_segment)
+                    if customer_info and customer_info.get('adjustment_label'):
+                        st.markdown(f"- Điều chỉnh KH {customer_type}: {customer_info['adjustment_label']}")
         
         # ============ SHOW PERSISTED ESTIMATION RESULTS (when page reruns e.g. checkbox click) ============
         # Show estimation results from session state when predict_btn is not pressed but we have cached results
@@ -3737,74 +3811,18 @@ def main():
                     segment=segment, charge_unit=cached_charge_unit
                 )
                 
-                # === Combined Final Price Card (same as main section) ===
-                st.markdown(f"#### 💰 Giá cuối cùng cho khách hàng loại {customer_type}")
-                
-                final_price = (price_info['min_price'] + price_info['max_price']) / 2
-                final_min = price_info['min_price']
-                final_max = price_info['max_price']
-                
-                year_adjustment_note = ""
-                if apply_yearly_adjustment and yearly_increase_pct > 0:
-                    current_year = datetime.now().year
-                    avg_fy_year = estimation.get('avg_fy_year', current_year)
-                    if avg_fy_year and avg_fy_year < current_year:
-                        years_diff = current_year - int(avg_fy_year)
-                        adjustment_factor = (1 + yearly_increase_pct / 100) ** years_diff
-                        final_price *= adjustment_factor
-                        final_min *= adjustment_factor
-                        final_max *= adjustment_factor
-                        year_adjustment_note = f" (+{yearly_increase_pct:.1f}%/năm × {years_diff} năm)"
-                
-                # Display combined result card
-                st.markdown(f"""
-                <div style="background-color: {conf_color}; padding: 20px; border-radius: 10px; margin-bottom: 10px;">
-                    <p style="color: {text_color}; margin: 0; font-size: 1.1em; font-weight: bold;">💵 Giá đề xuất ({cached_charge_unit}):</p>
-                    <h1 style="color: {text_color}; margin: 5px 0; font-size: 3.5em;">${final_price:,.2f}</h1>
-                    <p style="color: {text_color}; margin: 0; font-size: 0.9em;">Khoảng giá: <b>${final_min:,.2f}</b> – <b>${final_max:,.2f}</b></p>
-                    <hr style="margin: 10px 0; border-top: 1px solid rgba(0,0,0,0.2);">
-                    <p style="color: {text_color}; margin: 5px 0;">👤 {price_info['customer_description']}</p>
-                    <p style="color: {text_color}; margin: 5px 0;">📊 Điều chỉnh: {price_info['adjustment_label']}{year_adjustment_note}</p>
-                    <p style="color: {text_color}; margin: 5px 0;">🎯 Quyền tự quyết: {price_info['authority_range']}</p>
-                    <p style="color: {text_color}; margin: 5px 0;">📈 Độ tin cậy: {conf_label}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Show base estimation info below the card
-                with st.expander("📋 Chi tiết ước tính cơ bản", expanded=False):
-                    col_detail1, col_detail2 = st.columns(2)
-                    with col_detail1:
-                        st.markdown(f"- **Giá gốc:** ${estimation['estimated_price']:,.2f}")
-                        st.markdown(f"- **Khoảng giá:** \\${estimation['min_price']:,.2f} - \\${estimation['max_price']:,.2f}")
-                        st.markdown(f"- **Giá trung vị:** ${estimation.get('median_price', estimation['estimated_price']):,.2f}")
-                        st.markdown(f"- **Số mẫu:** {estimation['match_count']} / {estimation.get('total_matches', estimation['match_count'])}")
-                        if estimation.get('years_used'):
-                            st.markdown(f"- **Năm:** {estimation['years_used']}")
-                        if estimation.get('price_trend'):
-                            trend_pct = estimation.get('trend_pct', 0)
-                            trend_emoji = '📈' if estimation['price_trend'] == 'up' else '📉'
-                            trend_sign = '+' if estimation['price_trend'] == 'up' else '-'
-                            st.markdown(f"- {trend_emoji} **Xu hướng:** {trend_sign}{abs(trend_pct):.1f}%")
-                    
-                    # Confidence breakdown in right column
-                    with col_detail2:
-                        if estimation.get('confidence_breakdown'):
-                            st.markdown("**📊 Phân tích độ tin cậy:**")
-                            breakdown = estimation['confidence_breakdown']
-                            factor_names = {
-                                'sample_count': 'Số mẫu',
-                                'recency': 'Độ mới',
-                                'dimensional': 'Kích thước',
-                                'stone_match': 'Đá',
-                                'processing_match': 'Gia công',
-                                'application_match': 'Ứng dụng',
-                                'charge_unit_match': 'Đơn vị',
-                                'priority_strictness': 'Tiêu chí',
-                            }
-                            for key, info in breakdown.items():
-                                name = factor_names.get(key, key)
-                                score = info.get('score', 0)
-                                st.markdown(f"- {name}: **{score:.0f}**")
+                # === Display estimation result using DRY helper ===
+                display_estimation_result(
+                    estimation=estimation,
+                    price_info=price_info,
+                    charge_unit=cached_charge_unit,
+                    customer_type=customer_type,
+                    conf_color=conf_color,
+                    text_color=text_color,
+                    conf_label=conf_label,
+                    apply_yearly_adjustment=apply_yearly_adjustment,
+                    yearly_increase_pct=yearly_increase_pct,
+                )
         
         # ============ MATCHING PRODUCTS (Full Width) ============
         # Show matching products if we have stored matches from session state
@@ -3829,16 +3847,28 @@ def main():
                 st.metric("Trung vị", f"${match_prices.median():,.2f}")
             
             # Show table of ALL matches with Regional Group included
+            # Calculate price_m2 if not present
+            if 'price_m2' not in matches.columns:
+                matches['price_m2'] = matches.apply(
+                    lambda row: row['sales_price'] / (row['length_cm'] * row['width_cm'] / 10000) 
+                    if row['charge_unit'] == 'USD/M2' else (
+                        row['price_m3'] / (row['height_cm'] / 100) if pd.notna(row.get('price_m3')) and row.get('height_cm', 0) > 0 else None
+                    ),
+                    axis=1
+                )
+            
             display_cols = [
-                # Primary columns (user requested order)
+                # Primary columns: Contract info, then dimensions
                 'contract_product_name', 'contract_name',
                 'length_cm', 'width_cm', 'height_cm',
-                'sales_price', 'charge_unit', 'price_m3',
+                # SKU and Application before prices (per user request)
+                'sku', 'application_code', 'application',
+                # Price columns
+                'sales_price', 'charge_unit', 'price_m2', 'price_m3',
                 'created_date',
                 # Secondary columns
-                'sku', 'stone_color_type',
+                'stone_color_type',
                 'processing_code', 'processing_name',
-                'application_code', 'application',
                 'account_code', 'customer_regional_group', 'billing_country',
                 'segment', 'specific_gravity', 'hs_coefficient', 'fy_year',
             ]
@@ -3856,6 +3886,7 @@ def main():
                 'customer_regional_group': st.column_config.TextColumn('Regional Group'),
                 'billing_country': st.column_config.TextColumn('Billing Country'),
                 'sales_price': st.column_config.NumberColumn('Sales Price', format="$%.2f"),
+                'price_m2': st.column_config.NumberColumn('Price/m²', format="$%.2f"),
                 'price_m3': st.column_config.NumberColumn('Price/m³', format="$%.2f"),
                 'specific_gravity': st.column_config.NumberColumn('TLR', format="%.2f", help="Specific Gravity / Tỷ lệ khối lượng"),
                 'hs_coefficient': st.column_config.NumberColumn('HS', format="%.2f", help="Bottom Cladding Coefficient / Hệ số hao hụt"),
@@ -4045,70 +4076,20 @@ def main():
                         segment=segment, charge_unit=charge_unit
                     )
                     
-                    # === Combined Final Price Card for Manual Selection ===
-                    st.markdown(f"#### 💰 Giá cuối cùng cho khách hàng loại {customer_type} (từ sản phẩm đã chọn)")
-                    
-                    # Calculate final price with customer adjustment
-                    final_price = (price_info['min_price'] + price_info['max_price']) / 2
-                    final_min = price_info['min_price']
-                    final_max = price_info['max_price']
-                    
-                    # Apply yearly adjustment if enabled
-                    year_adjustment_note = ""
-                    avg_fy_year = manual_estimation.get('avg_fy_year')
-                    if apply_yearly_adjustment and yearly_increase_pct > 0:
-                        current_year = datetime.now().year
-                        if avg_fy_year and avg_fy_year < current_year:
-                            years_diff = current_year - int(avg_fy_year)
-                            adjustment_factor = (1 + yearly_increase_pct / 100) ** years_diff
-                            final_price *= adjustment_factor
-                            final_min *= adjustment_factor
-                            final_max *= adjustment_factor
-                            year_adjustment_note = f" (+{yearly_increase_pct:.1f}%/năm × {years_diff} năm)"
-                    
-                    # Display combined result card
-                    st.markdown(f"""
-                    <div style="background-color: {conf_color}; padding: 20px; border-radius: 10px; margin-bottom: 10px;">
-                        <p style="color: {text_color}; margin: 0; font-size: 1.1em; font-weight: bold;">💵 Giá đề xuất ({charge_unit}):</p>
-                        <h1 style="color: {text_color}; margin: 5px 0; font-size: 3.5em;">${final_price:,.2f}</h1>
-                        <p style="color: {text_color}; margin: 0; font-size: 0.9em;">Khoảng giá: <b>${final_min:,.2f}</b> – <b>${final_max:,.2f}</b></p>
-                        <hr style="margin: 10px 0; border-top: 1px solid rgba(0,0,0,0.2);">
-                        <p style="color: {text_color}; margin: 5px 0;">👤 {price_info['customer_description']}</p>
-                        <p style="color: {text_color}; margin: 5px 0;">📊 Điều chỉnh: {price_info['adjustment_label']}{year_adjustment_note}</p>
-                        <p style="color: {text_color}; margin: 5px 0;">🎯 Quyền tự quyết: {price_info['authority_range']}</p>
-                        <p style="color: {text_color}; margin: 5px 0;">📈 Độ tin cậy: {conf_label}</p>
-                        <p style="color: {text_color}; margin: 5px 0;">📦 Số mẫu: {manual_count} sản phẩm được chọn</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Show base estimation info in expander
-                    with st.expander("📋 Chi tiết ước tính cơ bản (từ sản phẩm đã chọn)", expanded=False):
-                        col_m1, col_m2 = st.columns(2)
-                        with col_m1:
-                            st.markdown(f"- **Giá gốc:** ${manual_estimation['estimated_price']:,.2f}")
-                            st.markdown(f"- **Khoảng giá:** \\${manual_estimation['min_price']:,.2f} - \\${manual_estimation['max_price']:,.2f}")
-                            st.markdown(f"- **Giá trung vị:** ${manual_estimation['median_price']:,.2f}")
-                            st.markdown(f"- **Số mẫu:** {manual_count}")
-                        
-                        # Confidence breakdown in right column
-                        with col_m2:
-                            if manual_estimation.get('confidence_breakdown'):
-                                st.markdown("**📊 Phân tích độ tin cậy:**")
-                                breakdown = manual_estimation['confidence_breakdown']
-                                factor_names = {
-                                    'sample_count': 'Số mẫu',
-                                    'recency': 'Độ mới',
-                                    'dimensional': 'Kích thước',
-                                    'stone_match': 'Đá',
-                                    'processing_match': 'Gia công',
-                                    'application_match': 'Ứng dụng',
-                                    'charge_unit_match': 'Đơn vị',
-                                    'priority_strictness': 'Tiêu chí',
-                                }
-                                for key, info in breakdown.items():
-                                    name = factor_names.get(key, key)
-                                    score = info.get('score', 0)
-                                    st.markdown(f"- {name}: **{score:.0f}**")
+                    # === Display estimation result using DRY helper ===
+                    yearly_adj_info, final_price, final_min, final_max = display_estimation_result(
+                        estimation=manual_estimation,
+                        price_info=price_info,
+                        charge_unit=charge_unit,
+                        customer_type=customer_type,
+                        conf_color=conf_color,
+                        text_color=text_color,
+                        conf_label=conf_label,
+                        apply_yearly_adjustment=apply_yearly_adjustment,
+                        yearly_increase_pct=yearly_increase_pct,
+                        is_manual=True,
+                        manual_count=manual_count,
+                    )
                     
                     # Export Report Button
                     st.divider()
@@ -4127,21 +4108,7 @@ def main():
                         'customer_type': customer_type,
                     }
                     
-                    # Prepare yearly adjustment info
-                    yearly_adj_info = None
-                    if apply_yearly_adjustment and yearly_increase_pct > 0:
-                        current_year = datetime.now().year
-                        if avg_fy_year and avg_fy_year < current_year:
-                            years_diff = current_year - int(avg_fy_year)
-                            adjustment_factor = (1 + yearly_increase_pct / 100) ** years_diff
-                            adjusted_price = manual_estimation['estimated_price'] * adjustment_factor
-                            yearly_adj_info = {
-                                'applied': True,
-                                'rate': yearly_increase_pct,
-                                'avg_year': avg_fy_year,
-                                'years_diff': years_diff,
-                                'adjusted_price': adjusted_price,
-                            }
+                    # yearly_adj_info is now returned by display_estimation_result()
                     
                     # Generate HTML report (use selected products only)
                     selected_matches = matches[matches.index.isin(selected_rows.index)]
@@ -4220,14 +4187,25 @@ def main():
         
         with st.expander("👥 Phân loại khách hàng"):
             st.markdown("""
-| Loại | Mô tả | Điều chỉnh |
-|------|-------|------------|
-| **A** | Thân thiết >10 năm | -1.5% đến -3% |
-| **B** | Lớn 3-10 năm | -2% đến -4% |
-| **C** | Phổ thông | Giá chuẩn |
-| **D** | Mới, nhỏ | +3% đến +6% |
-| **E** | Sản phẩm mới | ×1.08-1.15 |
-| **F** | Dự án | ×1.08-1.15 |
+**Nguyên tắc áp dụng bảng giá A-B-C-D-E-F** (9/11/2023)
+
+| Loại | Mô tả | Thời gian GD | Sản lượng/năm | Chiến lược | Điều chỉnh giá | Quyền tự quyết |
+|:----:|-------|:------------:|:-------------:|------------|----------------|----------------|
+| **A** | Thân thiết đặc biệt | >10 năm | 50-150 cont | Cạnh tranh đối thủ | **-1.5% → -3%** so với B | Thảo luận chiến lược |
+| **B** | Lớn, chuyên nghiệp | 3-10 năm | 20-50 cont | Đồng hành chiến lược | **-10→30 USD/m³** (2-4%) | Thảo luận chiến lược |
+| **C** | Phổ thông | 1-5 năm | 5-20 cont | Phát triển, dịch vụ tốt | **Giá chuẩn** | ±10-20 USD/m³ theo phân khúc |
+| **D** | Mới, khu vực cao | 1 năm | 1-10 cont | Tin cậy, phục vụ nhanh | **+15→45 USD/m³** (3-6%) | ±30-40 USD/m³ theo phân khúc |
+| **E** | Sản phẩm mới/sáng tạo | 1 năm | 1-10 cont | Năng lực cao, đổi mới | **×1.08→1.15** | ±30-40 USD/m³ |
+| **F** | Dự án cao cấp | 1-5 năm | 1-50 cont | Kinh nghiệm công trình | **×1.08→1.15** | ±30-40 USD/m³ |
+
+**Quyền tự quyết theo phân khúc sản phẩm (cho KH loại C):**
+- 🟢 **Economy (Kinh tế):** ±10.0 USD/m³
+- 🔵 **Common (Phổ thông):** ±15.0 USD/m³  
+- 🟣 **Premium (Cao cấp):** ±20.0 USD/m³ hoặc ±0.5 USD/m²
+
+**Quyền tự quyết cho KH loại D, E, F:**
+- 🟣 **Premium:** ±30.0 USD/m³ hoặc ±1.0 USD/m²
+- 🔴 **Super Premium:** ±40.0 USD/m³ hoặc ±1.5 USD/m²
             """)
         
         with st.expander("📐 Công thức tính toán"):

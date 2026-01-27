@@ -1,0 +1,80 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T5]{fontenc} % Essential for Vietnamese font encoding
+\usepackage[vietnamese]{babel} % FIXED: 'vietnam' -> 'vietnamese'
+\usepackage[margin=0.5in, landscape]{geometry} % Landscape mode with narrow margins
+\usepackage{tabularx}
+\usepackage{xltabular} % FIXED: Added for multipage tables with X columns
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{ragged2e} % For text alignment
+
+% Define new column type for wrapping text (Left aligned X column)
+\newcolumntype{L}{>{\RaggedRight\arraybackslash}X}
+\newcolumntype{M}[1]{>{\RaggedRight\arraybackslash}m{#1}}
+
+\title{Nguyên tắc Áp dụng bảng giá khách hàng}
+\date{09/11/2023}
+\author{}
+
+\begin{document}
+
+\maketitle
+
+\section*{Bảng Phân Loại và Chính Sách Khách Hàng (ABCDEF)}
+
+\begin{footnotesize}
+% FIXED: used xltabular with \linewidth
+\begin{xltabular}{\linewidth}{|c|p{1.5cm}|p{2cm}|p{1.5cm}|p{2.5cm}|L|L|L|}
+\hline
+\textbf{Loại} & \textbf{Thời gian} & \textbf{Sản lượng/năm} & \textbf{Định vị} & \textbf{Ví dụ} & \textbf{Chiến lược \& Khách cần gì} & \textbf{Xây dựng bảng giá} & \textbf{Ủy quyền quyết định} \\
+\hline
+\endhead
+
+% Row A
+\textbf{A} & > 10 năm & 50--150 containers & IV và V & X19, X39 & 
+\textbf{Khách thân thiết đặc biệt}: Hỗ trợ khách cạnh tranh công ty khác đang mua ở Vietnam & 
+Bớt 1.5 -- 3\% so với giá B & 
+\multirow{2}{=}{\textbf{Thảo luận chiến lược}} \\
+\cline{1-7} % Partial line to allow multirow to span
+
+% Row B
+\textbf{B} & 3--10 năm & 20--50 containers (trên >100.000 USD) & IV và V & X21.2, X36, X49, X26, X27 & 
+\textbf{Khách lớn, chuyên nghiệp}: Đồng hành chiến lược, giành ưu đãi & 
+Thấp hơn C: 10--30 USD/m3 hay 0.5--1.5 USD/m2 (2--4\%) & 
+\\
+\hline
+
+% Row C
+\textbf{C} & 1 năm & 1--10 containers & III, IV và VI & X91, X77, X46, X23.1, X21.4, X37 & 
+\textbf{Khách mới, khu vực chi trả cao, size nhỏ}: Hình ảnh, sự tin cậy, quy mô công ty, phục vụ nhanh & 
+Cao hơn C: 15--45 USD/m3 hay 1.0--2.0 USD/m2 (3--6\%) & 
+\multirow{2}{=}{Được tự quyết trong khoảng: \newline +/- 10.0 USD/m3 (Economy) \newline +/- 15.0 USD/m3 (Common) \newline +/- 20.0 USD/m3 (Premium)} \\
+\cline{1-7}
+
+% Row D
+\textbf{D} & 1--5 năm & 5--20 containers & III và IV & X17, X69, X59, X44, X45, X09, X25, X65, X11.3, X34 & 
+\textbf{Khách hàng phổ thông}: Tập trung phát triển, dịch vụ khách hàng tốt, tư vấn logistic & 
+Giá sản phẩm phổ thông chuẩn, xây dựng mỗi năm & 
+\\
+\hline
+
+% Row E
+\textbf{E} & 1 năm & 1--10 containers & IV và VI & X66, X11.2 & 
+\textbf{Khách mới sản phẩm mới, sáng tạo}: Công ty chuyên nghiệp, năng lực cao, đổi mới & 
+Hệ số 1.08--1.15 (Giá sản phẩm mới, cao cấp, sáng tạo) & 
+\multirow{2}{=}{Tự quyết trong khoảng: \newline +/- 30.0 USD/m3 hoặc 1.0 USD/m2 (Premium) \newline +/- 40.0 USD/m3 hoặc 1.5 USD/m2 (Super Premium)} \\
+\cline{1-7}
+
+% Row F
+\textbf{F} & 1--5 năm & 1--50 containers & III, IV và VI & X79, X87 & 
+\textbf{Khách hàng dự án, cao cấp}: Tin cậy, kinh nghiệm công trình, năng lực triển khai & 
+Hệ số 1.08--1.15 (Hàng lẻ, dự án, gia công phức tạp) & 
+\\
+\hline
+
+\end{xltabular}
+\end{footnotesize}
+
+\end{document}
