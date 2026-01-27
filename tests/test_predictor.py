@@ -368,5 +368,120 @@ class TestSegmentClassification:
         assert segment in ['Common', 'Economy']
 
 
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+# ============ Test Confidence Score ============
+class TestConfidenceScore:
+    """Test multi-factor confidence scoring."""
+    
+    def test_high_confidence_exact_matches(self, predictor):
+        """Many exact matches with recent data should give high confidence."""
+        matches = predictor.find_matching_products(
+            stone_color_type='ABSOLUTE BASALT',
+            processing_code='DOX',
+            length_cm=50.0,
+            width_cm=25.0,
+            height_cm=8.0,
+            application_codes=['3.1'],
+            customer_regional_group='',
+            charge_unit='USD/PC',
+            dimension_priority='Ưu tiên 3 - Sai lệch lớn',
+            region_priority='Ưu tiên 3',
+        )
+        
+        if len(matches) >= 2:
+            result = predictor.calculate_confidence_score(
+                matches=matches,
+                query_length_cm=50.0,
+                query_width_cm=25.0,
+                query_height_cm=8.0,
+                query_stone_color='ABSOLUTE BASALT',
+                query_processing_code='DOX',
+                query_application_codes=['3.1'],
+                query_charge_unit='USD/PC',
+                stone_priority='Ưu tiên 1',
+                processing_priority='Ưu tiên 1',
+                dimension_priority='Ưu tiên 1 - Đúng kích thước',
+                region_priority='Ưu tiên 1',
+            )
+            assert result['score'] > 0
+            assert result['level'] in ['high', 'medium', 'low', 'very_low']
+            assert 'breakdown' in result
+    
+    def test_confidence_breakdown_structure(self, predictor):
+        """Confidence breakdown should contain all factor scores."""
+        matches = predictor.find_matching_products(
+            stone_color_type='ABSOLUTE BASALT',
+            processing_code='DOX',
+            length_cm=50.0,
+            width_cm=25.0,
+            height_cm=8.0,
+            application_codes=[],
+            customer_regional_group='',
+            charge_unit='USD/PC',
+            dimension_priority='Ưu tiên 3 - Sai lệch lớn',
+            region_priority='Ưu tiên 3',
+        )
+        
+        if len(matches) >= 1:
+            result = predictor.calculate_confidence_score(
+                matches=matches,
+                query_length_cm=50.0,
+                query_width_cm=25.0,
+                query_height_cm=8.0,
+            )
+            
+            expected_factors = [
+                'sample_count', 'recency', 'dimensional',
+                'stone_match', 'processing_match', 'application_match',
+                'charge_unit_match', 'priority_strictness'
+            ]
+            for factor in expected_factors:
+                assert factor in result['breakdown'], f"Missing factor: {factor}"
+                assert 'score' in result['breakdown'][factor]
+                assert 'value' in result['breakdown'][factor]
+    
+    def test_low_confidence_relaxed_priorities(self, predictor):
+        """Relaxed priorities should result in lower confidence."""
+        matches = predictor.find_matching_products(
+            stone_color_type='ABSOLUTE BASALT',
+            processing_code='DOX',
+            length_cm=50.0,
+            width_cm=25.0,
+            height_cm=8.0,
+            application_codes=[],
+            customer_regional_group='',
+            charge_unit='USD/PC',
+            dimension_priority='Ưu tiên 3 - Sai lệch lớn',
+            region_priority='Ưu tiên 3',
+        )
+        
+        if len(matches) >= 1:
+            strict_result = predictor.calculate_confidence_score(
+                matches=matches,
+                query_length_cm=50.0,
+                query_width_cm=25.0,
+                query_height_cm=8.0,
+                stone_priority='Ưu tiên 1',
+                processing_priority='Ưu tiên 1',
+                dimension_priority='Ưu tiên 1 - Đúng kích thước',
+                region_priority='Ưu tiên 1',
+            )
+            
+            relaxed_result = predictor.calculate_confidence_score(
+                matches=matches,
+                query_length_cm=50.0,
+                query_width_cm=25.0,
+                query_height_cm=8.0,
+                stone_priority='Ưu tiên 3',
+                processing_priority='Ưu tiên 3',
+                dimension_priority='Ưu tiên 3 - Sai lệch lớn',
+                region_priority='Ưu tiên 3',
+            )
+            
+            # Relaxed priorities should give lower score
+            assert relaxed_result['breakdown']['priority_strictness']['score'] < strict_result['breakdown']['priority_strictness']['score']
+

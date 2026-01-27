@@ -2596,10 +2596,195 @@ class SimilarityPricePredictor:
         weights = np.power(2, -days_ago / self.recency_half_life_days)
         return weights
     
+    def calculate_confidence_score(
+        self,
+        matches: pd.DataFrame,
+        query_length_cm: float,
+        query_width_cm: float, 
+        query_height_cm: float,
+        query_stone_color: str = None,
+        query_processing_code: str = None,
+        query_application_codes: list = None,
+        query_charge_unit: str = None,
+        stone_priority: str = 'Ưu tiên 1',
+        processing_priority: str = 'Ưu tiên 1',
+        dimension_priority: str = 'Ưu tiên 1 - Đúng kích thước',
+        region_priority: str = 'Ưu tiên 1',
+    ) -> Dict[str, Any]:
+        """
+        Calculate multi-factor confidence score (0-100).
+        
+        Factors and weights:
+        - Data Recency: 20%
+        - Sample Count: 15%
+        - Dimensional Deviation: 15%
+        - Stone Color Match: 10%
+        - Processing Match: 10%
+        - Application Match: 10%
+        - Charge Unit Match: 10%
+        - Priority Strictness: 10%
+        
+        Returns:
+            Dict with 'score' (0-100), 'level' (high/medium/low/very_low), 
+            and 'breakdown' (individual factor scores)
+        """
+        if len(matches) == 0:
+            return {
+                'score': 0,
+                'level': 'none',
+                'breakdown': {}
+            }
+        
+        breakdown = {}
+        current_year = pd.Timestamp.now().year
+        
+        # 1. Sample Count Score (15%)
+        n = len(matches)
+        if n >= 10:
+            sample_score = 100
+        elif n >= 5:
+            sample_score = 75
+        elif n >= 2:
+            sample_score = 50
+        else:
+            sample_score = 25
+        breakdown['sample_count'] = {'score': sample_score, 'value': n}
+        
+        # 2. Data Recency Score (20%)
+        if 'fy_year' in matches.columns:
+            fy_years = pd.to_numeric(matches['fy_year'], errors='coerce').dropna()
+            if len(fy_years) > 0:
+                avg_year = fy_years.mean()
+                years_old = current_year - avg_year
+                if years_old <= 0.5:
+                    recency_score = 100
+                elif years_old <= 1:
+                    recency_score = 85
+                elif years_old <= 2:
+                    recency_score = 65
+                elif years_old <= 3:
+                    recency_score = 40
+                else:
+                    recency_score = 20
+            else:
+                recency_score = 50  # Unknown recency
+        else:
+            recency_score = 50
+        breakdown['recency'] = {'score': recency_score, 'value': f'{current_year - avg_year:.1f}yr' if 'avg_year' in dir() and avg_year else 'N/A'}
+        
+        # 3. Dimensional Deviation Score (15%)
+        if query_length_cm and query_width_cm and query_height_cm:
+            deviations = []
+            for _, row in matches.iterrows():
+                l_dev = abs(row.get('length_cm', query_length_cm) - query_length_cm) / query_length_cm * 100
+                w_dev = abs(row.get('width_cm', query_width_cm) - query_width_cm) / query_width_cm * 100
+                h_dev = abs(row.get('height_cm', query_height_cm) - query_height_cm) / query_height_cm * 100
+                deviations.append((l_dev + w_dev + h_dev) / 3)
+            avg_deviation = np.mean(deviations) if deviations else 0
+            if avg_deviation <= 5:
+                dim_score = 100
+            elif avg_deviation <= 10:
+                dim_score = 85
+            elif avg_deviation <= 20:
+                dim_score = 65
+            elif avg_deviation <= 30:
+                dim_score = 40
+            else:
+                dim_score = 20
+        else:
+            dim_score = 50
+            avg_deviation = None
+        breakdown['dimensional'] = {'score': dim_score, 'value': f'{avg_deviation:.1f}%' if avg_deviation is not None else 'N/A'}
+        
+        # 4. Stone Color Match Score (10%)
+        if query_stone_color and 'stone_color_type' in matches.columns:
+            exact_matches = (matches['stone_color_type'] == query_stone_color).sum()
+            stone_score = (exact_matches / len(matches)) * 100
+        else:
+            stone_score = 100  # No filter = full score
+        breakdown['stone_match'] = {'score': stone_score, 'value': f'{stone_score:.0f}%'}
+        
+        # 5. Processing Match Score (10%)
+        if query_processing_code and 'processing_code' in matches.columns:
+            exact_matches = (matches['processing_code'] == query_processing_code).sum()
+            proc_score = (exact_matches / len(matches)) * 100
+        else:
+            proc_score = 100
+        breakdown['processing_match'] = {'score': proc_score, 'value': f'{proc_score:.0f}%'}
+        
+        # 6. Application Match Score (10%)
+        if query_application_codes and len(query_application_codes) > 0 and 'application_code' in matches.columns:
+            app_matches = matches['application_code'].isin(query_application_codes).sum()
+            app_score = (app_matches / len(matches)) * 100
+        else:
+            app_score = 100
+        breakdown['application_match'] = {'score': app_score, 'value': f'{app_score:.0f}%'}
+        
+        # 7. Charge Unit Match Score (10%)
+        if query_charge_unit and 'charge_unit' in matches.columns:
+            unit_matches = (matches['charge_unit'] == query_charge_unit).sum()
+            unit_score = (unit_matches / len(matches)) * 100
+        else:
+            unit_score = 100
+        breakdown['charge_unit_match'] = {'score': unit_score, 'value': f'{unit_score:.0f}%'}
+        
+        # 8. Priority Strictness Score (10%)
+        # Score based on how strict the priority levels are
+        priority_scores = {
+            'Ưu tiên 1': 100,
+            'Ưu tiên 2': 65,
+            'Ưu tiên 3': 30,
+        }
+        dim_priority_scores = {
+            'Ưu tiên 1 - Đúng kích thước': 100,
+            'Ưu tiên 2 - Sai lệch nhỏ': 65,
+            'Ưu tiên 3 - Sai lệch lớn': 30,
+        }
+        stone_p = priority_scores.get(stone_priority, 65)
+        proc_p = priority_scores.get(processing_priority, 65)
+        dim_p = dim_priority_scores.get(dimension_priority, 65)
+        region_p = priority_scores.get(region_priority, 65)
+        priority_score = (stone_p + proc_p + dim_p + region_p) / 4
+        breakdown['priority_strictness'] = {'score': priority_score, 'value': f'{priority_score:.0f}%'}
+        
+        # Calculate weighted total
+        weighted_score = (
+            sample_score * 0.15 +
+            recency_score * 0.20 +
+            dim_score * 0.15 +
+            stone_score * 0.10 +
+            proc_score * 0.10 +
+            app_score * 0.10 +
+            unit_score * 0.10 +
+            priority_score * 0.10
+        )
+        
+        # Map to confidence level (use >79 to ensure 80.0 rounds to 'high')
+        if weighted_score > 79:
+            level = 'high'
+        elif weighted_score >= 60:
+            level = 'medium'
+        elif weighted_score >= 40:
+            level = 'low'
+        else:
+            level = 'very_low'
+        
+        return {
+            'score': round(weighted_score, 1),
+            'level': level,
+            'breakdown': breakdown
+        }
+
+    
     def estimate_price(self, matches: pd.DataFrame, use_recent_only: bool = True, recent_count: int = 10,
                         query_length_cm: float = None, query_width_cm: float = None, query_height_cm: float = None,
                         target_charge_unit: str = 'USD/M3', stone_color_type: str = None, processing_code: str = None,
-                        special_shape: str = None, shape_params: Dict[str, float] = None) -> Dict[str, Any]:
+                        special_shape: str = None, shape_params: Dict[str, float] = None,
+                        application_codes: list = None,
+                        stone_priority: str = 'Ưu tiên 1',
+                        processing_priority: str = 'Ưu tiên 1',
+                        dimension_priority: str = 'Ưu tiên 1 - Đúng kích thước',
+                        region_priority: str = 'Ưu tiên 1') -> Dict[str, Any]:
         """
         Estimate price from matching products.
         Uses recency-weighted average, optionally filtering to most recent products.
@@ -2777,15 +2962,24 @@ class SimilarityPricePredictor:
             max_price = prices.max()
             median_price = prices.median()
         
-        # Confidence based on match count
-        if len(matches) >= 10:
-            confidence = 'high'
-        elif len(matches) >= 5:
-            confidence = 'medium'
-        elif len(matches) >= 2:
-            confidence = 'low'
-        else:
-            confidence = 'very_low'
+        # Calculate multi-factor confidence score
+        confidence_result = self.calculate_confidence_score(
+            matches=matches,
+            query_length_cm=query_length_cm,
+            query_width_cm=query_width_cm,
+            query_height_cm=query_height_cm,
+            query_stone_color=stone_color_type,
+            query_processing_code=processing_code,
+            query_application_codes=application_codes,
+            query_charge_unit=target_charge_unit,
+            stone_priority=stone_priority,
+            processing_priority=processing_priority,
+            dimension_priority=dimension_priority,
+            region_priority=region_priority,
+        )
+        confidence = confidence_result['level']
+        confidence_score = confidence_result['score']
+        confidence_breakdown = confidence_result['breakdown']
         
         # Calculate price trend based on fy_year
         price_trend = None
@@ -2827,6 +3021,8 @@ class SimilarityPricePredictor:
             'match_count': len(matches),
             'total_matches': total_matches,
             'confidence': confidence,
+            'confidence_score': confidence_score,
+            'confidence_breakdown': confidence_breakdown,
             'years_used': years_used,
             'price_m3': round(weighted_price_m3, 2),
             'price_trend': price_trend,
@@ -3020,23 +3216,8 @@ def main():
             with col_dim3:
                 height = st.number_input("Dày (cm)", min_value=0.5, max_value=50.0, value=3.0, step=0.5)
             
-            # 3. Gia công chính (Main Processing) - THIRD
+            # Processing lookup for use in col2
             processing_lookup = {code: (eng, vn) for code, eng, vn in PROCESSING_CODES}
-            processing_code = st.selectbox(
-                "Gia công chính (Main Processing)",
-                options=[code for code, eng, vn in PROCESSING_CODES],
-                format_func=lambda x: f"{x} - {processing_lookup.get(x, ('Other', 'Khác'))[0]} ({processing_lookup.get(x, ('Other', 'Khác'))[1]})",
-                index=0
-            )
-            
-            # 4. Khu vực (Region) - FOURTH
-            customer_regional_group = st.selectbox(
-                "Nhóm Khu vực KH (Regional Group)",
-                options=[code for code, name in CUSTOMER_REGIONAL_GROUPS if code],
-                format_func=lambda x: x,
-                index=0,
-                help="Nhóm đầu 0-9 theo khu vực khách hàng"
-            )
             
             # 5. Ứng dụng (Application) - FIFTH
             application_lookup = {code: name for code, name in APPLICATION_CODES}
@@ -3083,7 +3264,7 @@ def main():
                     st.caption("🪨 Tìm tất cả loại đá")
                 
                 processing_priority = st.selectbox(
-                    "Gia công",
+                    "Gia công chính (Main Processing)",
                     options=['Ưu tiên 1', 'Ưu tiên 2', 'Ưu tiên 3'],
                     format_func=lambda x: {
                         'Ưu tiên 1': '1 - Đúng loại gia công',
@@ -3092,18 +3273,21 @@ def main():
                     }[x],
                     index=1  # Default: Ưu tiên 2
                 )
-                # Show processing priority info
-                if processing_priority == 'Ưu tiên 2':
-                    proc_group = PROCESSING_CODE_TO_GROUP.get(processing_code, 'GIA_CONG_MAY')
-                    group_codes = PROCESSING_GROUPS.get(proc_group, [processing_code])
-                    st.caption(f"⚙️ Tìm nhóm: {', '.join(group_codes)}")
-                elif processing_priority == 'Ưu tiên 3':
-                    st.caption("⚙️ Tìm tất cả loại gia công")
-                # Show Processing Group dropdown when Priority 2 is selected
+                
+                # Show processing code dropdown when Priority 1 is selected
+                processing_code = None
                 selected_processing_group = None
-                if processing_priority == 'Ưu tiên 2':
-                    # Get default group for current processing code
-                    default_group = PROCESSING_CODE_TO_GROUP.get(processing_code, 'GIA_CONG_MAY')
+                if processing_priority == 'Ưu tiên 1':
+                    processing_code = st.selectbox(
+                        "Chọn loại gia công",
+                        options=[code for code, eng, vn in PROCESSING_CODES],
+                        format_func=lambda x: f"{x} - {processing_lookup.get(x, ('Other', 'Khác'))[0]} ({processing_lookup.get(x, ('Other', 'Khác'))[1]})",
+                        index=0,
+                        help="Lọc theo loại gia công cụ thể"
+                    )
+                elif processing_priority == 'Ưu tiên 2':
+                    # Get default group
+                    default_group = 'GIA_CONG_MAY_TAY'
                     group_options = list(PROCESSING_GROUP_NAMES.keys())
                     default_index = group_options.index(default_group) if default_group in group_options else 0
                     
@@ -3114,6 +3298,10 @@ def main():
                         index=default_index,
                         help="Lọc theo nhóm gia công thay vì loại gia công cụ thể"
                     )
+                    group_codes = PROCESSING_GROUPS.get(selected_processing_group, [])
+                    st.caption(f"⚙️ Tìm nhóm: {', '.join(group_codes)}")
+                else:
+                    st.caption("⚙️ Tìm tất cả loại gia công")
             with col_p2:
                 dimension_priority = st.selectbox(
                     "Kích thước",
@@ -3135,7 +3323,7 @@ def main():
                     )
                 
                 region_priority = st.selectbox(
-                    "Thị trường",
+                    "Nhóm Khu vực KH (Regional Group)",
                     options=['Ưu tiên 1', 'Ưu tiên 2', 'Ưu tiên 3'],
                     format_func=lambda x: {
                         'Ưu tiên 1': '1 - Đúng nước (Billing)',
@@ -3145,8 +3333,9 @@ def main():
                     index=2  # Default: Ưu tiên 3 
                 )
 
-                # Dynamic Market selector based on region_priority
+                # Dynamic selector based on region_priority
                 billing_country_selected = None
+                customer_regional_group = None
                 if region_priority == 'Ưu tiên 1':
                     # Get unique billing countries from data
                     billing_countries = []
@@ -3159,8 +3348,19 @@ def main():
                         options=billing_countries,
                         help="Lọc theo quốc gia trong địa chỉ thanh toán"
                     )
+                elif region_priority == 'Ưu tiên 2':
+                    customer_regional_group = st.selectbox(
+                        "Chọn Nhóm Khu vực KH",
+                        options=[code for code, name in CUSTOMER_REGIONAL_GROUPS if code],
+                        format_func=lambda x: x,
+                        index=0,
+                        help="Nhóm đầu 0-9 theo khu vực khách hàng"
+                    )
+                    st.caption(f"🌍 Tìm theo nhóm: {customer_regional_group}")
+                else:
+                    st.caption("🌍 Tìm tất cả thị trường")
             
-            regional_group_selected = customer_regional_group  # Use the existing regional group selection
+            regional_group_selected = customer_regional_group  # Use the selected regional group
             
             st.divider()
             st.markdown("#### 📅 Cài đặt tính toán giá")
@@ -3173,7 +3373,7 @@ def main():
                 "Số lượng sản phẩm tham khảo",
                 min_value=5,
                 max_value=35,
-                value=10,
+                value=5,
                 step=5,
                 help="Số lượng sản phẩm gần nhất sử dụng để ước tính giá. Nên đặt từ 5 đến 10 sản phẩm tham khảo!",
                 disabled=not use_recent_only
@@ -3226,6 +3426,10 @@ def main():
             # Store matches in session state to persist across reruns
             st.session_state.last_matches = matches.copy()
             
+            # Clear manual estimation when new search is performed
+            if 'manual_estimation' in st.session_state:
+                st.session_state.manual_estimation = None
+            
             estimation = predictor.estimate_price(
                 matches, 
                 use_recent_only=use_recent_only, 
@@ -3235,7 +3439,12 @@ def main():
                 query_height_cm=height,
                 target_charge_unit=charge_unit,
                 stone_color_type=stone_color,
-                processing_code=processing_code
+                processing_code=processing_code,
+                application_codes=selected_applications,
+                stone_priority=stone_priority,
+                processing_priority=processing_priority,
+                dimension_priority=dimension_priority,
+                region_priority=region_priority,
             )
             
             # Store estimation and query params in session state to persist across reruns
@@ -3267,13 +3476,16 @@ def main():
                     'very_low': '#9e7cc1',
                 }
                 confidence_labels = {
-                    'high': 'Cao (≥10 mẫu)',
-                    'medium': 'Trung bình (5-9 mẫu)',
-                    'low': 'Thấp (2-4 mẫu)',
-                    'very_low': 'Rất thấp (1 mẫu)',
+                    'high': 'Cao',
+                    'medium': 'Trung bình',
+                    'low': 'Thấp',
+                    'very_low': 'Rất thấp',
                 }
                 conf_color = confidence_colors.get(estimation['confidence'], '#808080')
-                conf_label = confidence_labels.get(estimation['confidence'], 'N/A')
+                # Use dark text for medium (yellow) background for better readability
+                text_color = '#000000' if estimation['confidence'] == 'medium' else 'white'
+                conf_score = estimation.get('confidence_score', 0)
+                conf_label = f"{confidence_labels.get(estimation['confidence'], 'N/A')} ({conf_score:.0f}%)"
                 
                 # Note: Main results are now displayed in the combined customer price card below
                 st.divider()
@@ -3317,33 +3529,52 @@ def main():
                 # Display combined result card
                 st.markdown(f"""
                 <div style="background-color: {conf_color}; padding: 20px; border-radius: 10px; margin-bottom: 10px;">
-                    <p style="color: white; margin: 0; font-size: 1.1em; font-weight: bold;">💵 Giá đề xuất ({charge_unit}):</p>
-                    <h1 style="color: white; margin: 5px 0; font-size: 3.5em;">${final_price:,.2f}</h1>
-                    <p style="color: white; margin: 0; font-size: 0.9em;">Khoảng giá: <b>${final_min:,.2f}</b> – <b>${final_max:,.2f}</b></p>
-                    <hr style="margin: 10px 0; border-top: 1px solid rgba(255,255,255,0.3);">
-                    <p style="color: white; margin: 5px 0;">👤 {price_info['customer_description']}</p>
-                    <p style="color: white; margin: 5px 0;">📊 Điều chỉnh: {price_info['adjustment_label']}{year_adjustment_note}</p>
-                    <p style="color: white; margin: 5px 0;">🎯 Quyền tự quyết: {price_info['authority_range']}</p>
-                    <p style="color: white; margin: 5px 0;">📈 Độ tin cậy: {conf_label}</p>
+                    <p style="color: {text_color}; margin: 0; font-size: 1.1em; font-weight: bold;">💵 Giá đề xuất ({charge_unit}):</p>
+                    <h1 style="color: {text_color}; margin: 5px 0; font-size: 3.5em;">${final_price:,.2f}</h1>
+                    <p style="color: {text_color}; margin: 0; font-size: 0.9em;">Khoảng giá: <b>${final_min:,.2f}</b> – <b>${final_max:,.2f}</b></p>
+                    <hr style="margin: 10px 0; border-top: 1px solid rgba(0,0,0,0.2);">
+                    <p style="color: {text_color}; margin: 5px 0;">👤 {price_info['customer_description']}</p>
+                    <p style="color: {text_color}; margin: 5px 0;">📊 Điều chỉnh: {price_info['adjustment_label']}{year_adjustment_note}</p>
+                    <p style="color: {text_color}; margin: 5px 0;">🎯 Quyền tự quyết: {price_info['authority_range']}</p>
+                    <p style="color: {text_color}; margin: 5px 0;">📈 Độ tin cậy: {conf_label}</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
                 # Show base estimation info below the card
                 with st.expander("📋 Chi tiết ước tính cơ bản", expanded=False):
-                    st.markdown(f"- **Giá ước tính gốc:** ${estimation['estimated_price']:,.2f}")
-                    st.markdown(f"- **Khoảng giá gốc:** \\${estimation['min_price']:,.2f} - \\${estimation['max_price']:,.2f}")
-                    st.markdown(f"- **Giá trung vị:** ${estimation['median_price']:,.2f}")
-                    st.markdown(f"- **Số mẫu khớp:** {estimation['match_count']} / {estimation.get('total_matches', estimation['match_count'])}")
-                    if estimation.get('years_used'):
-                        st.markdown(f"- **Năm tham khảo:** {estimation['years_used']}")
-                    if estimation.get('price_trend'):
-                        trend_pct = estimation.get('trend_pct', 0)
-                        if estimation['price_trend'] == 'up':
-                            st.markdown(f"- 📈 **Xu hướng:** Tăng +{abs(trend_pct):.1f}% so với năm trước")
-                        elif estimation['price_trend'] == 'down':
-                            st.markdown(f"- 📉 **Xu hướng:** Giảm -{abs(trend_pct):.1f}% so với năm trước")
-                
-                # Export Report Button
+                    col_detail1, col_detail2 = st.columns(2)
+                    with col_detail1:
+                        st.markdown(f"- **Giá gốc:** ${estimation['estimated_price']:,.2f}")
+                        st.markdown(f"- **Khoảng giá:** \\${estimation['min_price']:,.2f} - \\${estimation['max_price']:,.2f}")
+                        st.markdown(f"- **Giá trung vị:** ${estimation['median_price']:,.2f}")
+                        st.markdown(f"- **Số mẫu:** {estimation['match_count']} / {estimation.get('total_matches', estimation['match_count'])}")
+                        if estimation.get('years_used'):
+                            st.markdown(f"- **Năm:** {estimation['years_used']}")
+                        if estimation.get('price_trend'):
+                            trend_pct = estimation.get('trend_pct', 0)
+                            trend_emoji = '📈' if estimation['price_trend'] == 'up' else '📉'
+                            trend_sign = '+' if estimation['price_trend'] == 'up' else '-'
+                            st.markdown(f"- {trend_emoji} **Xu hướng:** {trend_sign}{abs(trend_pct):.1f}%")
+                    
+                    # Confidence breakdown in right column
+                    with col_detail2:
+                        if estimation.get('confidence_breakdown'):
+                            st.markdown("**📊 Phân tích độ tin cậy:**")
+                            breakdown = estimation['confidence_breakdown']
+                            factor_names = {
+                                'sample_count': 'Số mẫu',
+                                'recency': 'Độ mới',
+                                'dimensional': 'Kích thước',
+                                'stone_match': 'Đá',
+                                'processing_match': 'Gia công',
+                                'application_match': 'Ứng dụng',
+                                'charge_unit_match': 'Đơn vị',
+                                'priority_strictness': 'Tiêu chí',
+                            }
+                            for key, info in breakdown.items():
+                                name = factor_names.get(key, key)
+                                score = info.get('score', 0)
+                                st.markdown(f"- {name}: **{score:.0f}**")
                 st.divider()
                 st.markdown("#### 📄 Xuất báo cáo")
                 
@@ -3474,76 +3705,26 @@ def main():
                     'very_low': '#9e7cc1',
                 }
                 confidence_labels = {
-                    'high': 'Cao (≥10 mẫu)',
-                    'medium': 'Trung bình (5-9 mẫu)',
-                    'low': 'Thấp (2-4 mẫu)',
-                    'very_low': 'Rất thấp (1 mẫu)',
+                    'high': 'Cao',
+                    'medium': 'Trung bình',
+                    'low': 'Thấp',
+                    'very_low': 'Rất thấp',
                 }
                 conf_color = confidence_colors.get(estimation.get('confidence', ''), '#808080')
-                conf_label = confidence_labels.get(estimation.get('confidence', ''), 'N/A')
+                # Use dark text for medium (yellow) background for better readability
+                text_color = '#000000' if estimation.get('confidence', '') == 'medium' else 'white'
+                conf_score = estimation.get('confidence_score', 0)
+                conf_label = f"{confidence_labels.get(estimation.get('confidence', ''), 'N/A')} ({conf_score:.0f}%)"
                 
                 cached_charge_unit = query_params.get('charge_unit', charge_unit)
-                st.metric(f"💰 Giá ước tính ({cached_charge_unit})", f"${estimation['estimated_price']:,.2f}")
-                
-                # Apply yearly price adjustment if enabled (use current sidebar settings)
-                if apply_yearly_adjustment and yearly_increase_pct > 0:
-                    current_year = datetime.now().year
-                    avg_fy_year = estimation.get('avg_fy_year', current_year)
-                    if avg_fy_year and avg_fy_year < current_year:
-                        years_diff = current_year - int(avg_fy_year)
-                        adjustment_factor = (1 + yearly_increase_pct / 100) ** years_diff
-                        adjusted_price = estimation['estimated_price'] * adjustment_factor
-                        adjusted_min = estimation['min_price'] * adjustment_factor
-                        adjusted_max = estimation['max_price'] * adjustment_factor
-                        
-                        st.markdown(f"""
-                        <div style="background-color: {conf_color}; padding: 20px; border-radius: 10px; margin-bottom: 10px;">
-                            <p style="color: white; margin: 0; font-size: 1.1em; font-weight: bold;">💵 Giá điều chỉnh ({current_year}):</p>
-                            <h1 style="color: white; margin: 5px 0; font-size: 3.5em;">${adjusted_price:,.2f}</h1>
-                            <p style="color: white; margin: 0; font-style: italic;">(+{yearly_increase_pct:.1f}% × {years_diff} năm)</p>
-                            <hr style="margin: 10px 0; border-top: 1px solid rgba(255,255,255,0.3);">
-                            <p style="color: white; margin: 0;">Độ tin cậy: {conf_label}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        st.markdown(f"Khoảng giá điều chỉnh: **\\${adjusted_min:,.2f}** – **\\${adjusted_max:,.2f}**")
-                    else:
-                        st.markdown(f"**Độ tin cậy:** <span style='color:{conf_color}; font-weight:bold'>{conf_label}</span>", unsafe_allow_html=True)
-                        st.markdown(f"Khoảng giá thực tế: **\\${estimation['min_price']:,.2f}** – **\\${estimation['max_price']:,.2f}**")
-                else:
-                    st.markdown(f"**Độ tin cậy:** <span style='color:{conf_color}; font-weight:bold'>{conf_label}</span>", unsafe_allow_html=True)
-                    st.markdown(f"Khoảng giá thực tế: **\\${estimation['min_price']:,.2f}** – **\\${estimation['max_price']:,.2f}**")
-                
-                st.markdown(f"**Giá trung vị:** ${estimation.get('median_price', estimation['estimated_price']):,.2f}")
-                
-                # Show match count info
-                use_recent = query_params.get('use_recent_only', use_recent_only)
-                if use_recent and estimation.get('total_matches', 0) > estimation.get('match_count', 0):
-                    st.markdown(f"**Số mẫu khớp:** {estimation['match_count']} / {estimation['total_matches']} (sử dụng {estimation['match_count']} mẫu gần nhất)")
-                    if estimation.get('years_used'):
-                        st.markdown(f"**Năm tham khảo:** {estimation['years_used']}")
-                else:
-                    st.markdown(f"**Số mẫu khớp:** {estimation.get('match_count', 0)}")
-                
-                # Show price trend if available
-                if estimation.get('price_trend') and estimation.get('trend_pct') is not None:
-                    trend_pct = estimation['trend_pct']
-                    if estimation['price_trend'] == 'up':
-                        st.markdown(f"📈 **Xu hướng giá:** Tăng **+{abs(trend_pct):.1f}%** so với năm trước")
-                    elif estimation['price_trend'] == 'down':
-                        st.markdown(f"📉 **Xu hướng giá:** Giảm **-{abs(trend_pct):.1f}%** so với năm trước")
-                    else:
-                        st.markdown(f"➡️ **Xu hướng giá:** Ổn định")
-                
-                st.divider()
-                
-                # Calculate segment for pricing (use current sidebar settings)
-                first_app = selected_applications[0] if selected_applications else ''
                 cached_height = query_params.get('height', height)
                 cached_length = query_params.get('length', length)
                 cached_width = query_params.get('width', width)
                 cached_stone_color = query_params.get('stone_color', stone_color)
                 cached_processing_code = query_params.get('processing_code', processing_code)
                 
+                # Calculate segment and customer price
+                first_app = selected_applications[0] if selected_applications else ''
                 est_price_m3 = convert_price(
                     estimation['estimated_price'], cached_charge_unit, 'USD/M3',
                     height_cm=cached_height, length_cm=cached_length, width_cm=cached_width,
@@ -3551,35 +3732,79 @@ def main():
                 )
                 segment = classify_segment(est_price_m3, height_cm=cached_height, family=first_app, processing_code=cached_processing_code)
                 
-                # Customer price adjustment with segment awareness (use current customer_type from sidebar)
                 price_info = calculate_customer_price(
                     estimation['estimated_price'], customer_type, 
                     segment=segment, charge_unit=cached_charge_unit
                 )
-                st.markdown(f"**👤 Giá theo khách hàng loại {customer_type}:**")
-                st.markdown(f"- {price_info['customer_description']}")
-                st.markdown(f"- Khoảng giá: **\\${price_info['min_price']:,.2f}** – **\\${price_info['max_price']:,.2f}**")
-                st.markdown(f"- Điều chỉnh: {price_info['adjustment_label']}")
-                st.markdown(f"- Quyền tự quyết: {price_info['authority_range']}")
                 
-                # Product info summary
-                st.divider()
-                st.markdown("**📦 Thông tin sản phẩm:**")
-                volume_m3 = calculate_volume_m3(cached_length, cached_width, cached_height)
-                area_m2 = calculate_area_m2(cached_length, cached_width)
-                tlr = get_tlr(cached_stone_color, cached_processing_code)
-                hs = get_hs_factor((cached_length, cached_width, cached_height), cached_processing_code, first_app)
-                weight_tons = calculate_weight_tons(volume_m3, cached_stone_color, cached_processing_code, (cached_length, cached_width, cached_height), first_app)
+                # === Combined Final Price Card (same as main section) ===
+                st.markdown(f"#### 💰 Giá cuối cùng cho khách hàng loại {customer_type}")
                 
-                col_info1, col_info2 = st.columns(2)
-                with col_info1:
-                    st.markdown(f"- Kích thước: {cached_length} x {cached_width} x {cached_height} cm")
-                    st.markdown(f"- Thể tích: {volume_m3:.6f} m³")
-                    st.markdown(f"- Diện tích: {area_m2:.4f} m²")
-                with col_info2:
-                    st.markdown(f"- TLR: {tlr} tấn/m³")
-                    st.markdown(f"- HS: {hs}")
-                    st.markdown(f"- Khối lượng: **{weight_tons:.4f} tấn**")
+                final_price = (price_info['min_price'] + price_info['max_price']) / 2
+                final_min = price_info['min_price']
+                final_max = price_info['max_price']
+                
+                year_adjustment_note = ""
+                if apply_yearly_adjustment and yearly_increase_pct > 0:
+                    current_year = datetime.now().year
+                    avg_fy_year = estimation.get('avg_fy_year', current_year)
+                    if avg_fy_year and avg_fy_year < current_year:
+                        years_diff = current_year - int(avg_fy_year)
+                        adjustment_factor = (1 + yearly_increase_pct / 100) ** years_diff
+                        final_price *= adjustment_factor
+                        final_min *= adjustment_factor
+                        final_max *= adjustment_factor
+                        year_adjustment_note = f" (+{yearly_increase_pct:.1f}%/năm × {years_diff} năm)"
+                
+                # Display combined result card
+                st.markdown(f"""
+                <div style="background-color: {conf_color}; padding: 20px; border-radius: 10px; margin-bottom: 10px;">
+                    <p style="color: {text_color}; margin: 0; font-size: 1.1em; font-weight: bold;">💵 Giá đề xuất ({cached_charge_unit}):</p>
+                    <h1 style="color: {text_color}; margin: 5px 0; font-size: 3.5em;">${final_price:,.2f}</h1>
+                    <p style="color: {text_color}; margin: 0; font-size: 0.9em;">Khoảng giá: <b>${final_min:,.2f}</b> – <b>${final_max:,.2f}</b></p>
+                    <hr style="margin: 10px 0; border-top: 1px solid rgba(0,0,0,0.2);">
+                    <p style="color: {text_color}; margin: 5px 0;">👤 {price_info['customer_description']}</p>
+                    <p style="color: {text_color}; margin: 5px 0;">📊 Điều chỉnh: {price_info['adjustment_label']}{year_adjustment_note}</p>
+                    <p style="color: {text_color}; margin: 5px 0;">🎯 Quyền tự quyết: {price_info['authority_range']}</p>
+                    <p style="color: {text_color}; margin: 5px 0;">📈 Độ tin cậy: {conf_label}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Show base estimation info below the card
+                with st.expander("📋 Chi tiết ước tính cơ bản", expanded=False):
+                    col_detail1, col_detail2 = st.columns(2)
+                    with col_detail1:
+                        st.markdown(f"- **Giá gốc:** ${estimation['estimated_price']:,.2f}")
+                        st.markdown(f"- **Khoảng giá:** \\${estimation['min_price']:,.2f} - \\${estimation['max_price']:,.2f}")
+                        st.markdown(f"- **Giá trung vị:** ${estimation.get('median_price', estimation['estimated_price']):,.2f}")
+                        st.markdown(f"- **Số mẫu:** {estimation['match_count']} / {estimation.get('total_matches', estimation['match_count'])}")
+                        if estimation.get('years_used'):
+                            st.markdown(f"- **Năm:** {estimation['years_used']}")
+                        if estimation.get('price_trend'):
+                            trend_pct = estimation.get('trend_pct', 0)
+                            trend_emoji = '📈' if estimation['price_trend'] == 'up' else '📉'
+                            trend_sign = '+' if estimation['price_trend'] == 'up' else '-'
+                            st.markdown(f"- {trend_emoji} **Xu hướng:** {trend_sign}{abs(trend_pct):.1f}%")
+                    
+                    # Confidence breakdown in right column
+                    with col_detail2:
+                        if estimation.get('confidence_breakdown'):
+                            st.markdown("**📊 Phân tích độ tin cậy:**")
+                            breakdown = estimation['confidence_breakdown']
+                            factor_names = {
+                                'sample_count': 'Số mẫu',
+                                'recency': 'Độ mới',
+                                'dimensional': 'Kích thước',
+                                'stone_match': 'Đá',
+                                'processing_match': 'Gia công',
+                                'application_match': 'Ứng dụng',
+                                'charge_unit_match': 'Đơn vị',
+                                'priority_strictness': 'Tiêu chí',
+                            }
+                            for key, info in breakdown.items():
+                                name = factor_names.get(key, key)
+                                score = info.get('score', 0)
+                                st.markdown(f"- {name}: **{score:.0f}**")
         
         # ============ MATCHING PRODUCTS (Full Width) ============
         # Show matching products if we have stored matches from session state
@@ -3745,6 +3970,24 @@ def main():
                         tlr=query_tlr, hs=query_hs
                     )
                     
+                    # Calculate confidence for manual selection
+                    # Need to create predictor since it's not in this scope
+                    recalc_predictor = SimilarityPricePredictor()
+                    manual_conf = recalc_predictor.calculate_confidence_score(
+                        matches=selected_rows,
+                        query_length_cm=length,
+                        query_width_cm=width,
+                        query_height_cm=height,
+                        query_stone_color=stone_color,
+                        query_processing_code=processing_code,
+                        query_application_codes=selected_applications,
+                        query_charge_unit=charge_unit,
+                        stone_priority=stone_priority,
+                        processing_priority=processing_priority,
+                        dimension_priority=dimension_priority,
+                        region_priority=region_priority,
+                    )
+                    
                     # Store manual estimation in session state
                     st.session_state.manual_estimation = {
                         'estimated_price': estimated_price,
@@ -3755,6 +3998,9 @@ def main():
                         'avg_fy_year': avg_fy_year,
                         'total_matches': len(matches),
                         'price_m3': avg_price_m3,
+                        'confidence': manual_conf['level'],
+                        'confidence_score': manual_conf['score'],
+                        'confidence_breakdown': manual_conf['breakdown'],
                     }
                 
                 # Show results if we have a valid manual estimation from this session (even if button wasn't just clicked)
@@ -3764,20 +4010,26 @@ def main():
                     
                     st.divider()
                     
-                    # Confidence for manual selection (based on count)
+                    # Confidence for manual selection (use multi-factor score if available)
                     manual_count = manual_estimation['match_count']
-                    if manual_count >= 10:
-                        conf_color = '#6bcb77'  # High
-                        conf_label = 'Cao (≥10 mẫu)'
-                    elif manual_count >= 5:
-                        conf_color = '#ffd93d'  # Medium
-                        conf_label = 'Trung bình (5-9 mẫu)'
-                    elif manual_count >= 2:
-                        conf_color = '#ff6b6b'  # Low
-                        conf_label = 'Thấp (2-4 mẫu)'
-                    else:
-                        conf_color = '#9e7cc1'  # Very low
-                        conf_label = 'Rất thấp (1 mẫu)'
+                    conf_score = manual_estimation.get('confidence_score', 0)
+                    conf_level = manual_estimation.get('confidence', 'low')
+                    confidence_colors = {
+                        'high': '#6bcb77',
+                        'medium': '#ffd93d',
+                        'low': '#ff6b6b',
+                        'very_low': '#9e7cc1',
+                    }
+                    confidence_labels = {
+                        'high': 'Cao',
+                        'medium': 'Trung bình',
+                        'low': 'Thấp',
+                        'very_low': 'Rất thấp',
+                    }
+                    conf_color = confidence_colors.get(conf_level, '#808080')
+                    # Use dark text for medium (yellow) background for better readability
+                    text_color = '#000000' if conf_level == 'medium' else 'white'
+                    conf_label = f"{confidence_labels.get(conf_level, 'N/A')} ({conf_score:.0f}%)"
                     
                     # Calculate segment and customer price adjustment
                     first_app = selected_applications[0] if selected_applications else ''
@@ -3817,24 +4069,46 @@ def main():
                     # Display combined result card
                     st.markdown(f"""
                     <div style="background-color: {conf_color}; padding: 20px; border-radius: 10px; margin-bottom: 10px;">
-                        <p style="color: white; margin: 0; font-size: 1.1em; font-weight: bold;">💵 Giá đề xuất ({charge_unit}):</p>
-                        <h1 style="color: white; margin: 5px 0; font-size: 3.5em;">${final_price:,.2f}</h1>
-                        <p style="color: white; margin: 0; font-size: 0.9em;">Khoảng giá: <b>${final_min:,.2f}</b> – <b>${final_max:,.2f}</b></p>
-                        <hr style="margin: 10px 0; border-top: 1px solid rgba(255,255,255,0.3);">
-                        <p style="color: white; margin: 5px 0;">👤 {price_info['customer_description']}</p>
-                        <p style="color: white; margin: 5px 0;">📊 Điều chỉnh: {price_info['adjustment_label']}{year_adjustment_note}</p>
-                        <p style="color: white; margin: 5px 0;">🎯 Quyền tự quyết: {price_info['authority_range']}</p>
-                        <p style="color: white; margin: 5px 0;">📈 Độ tin cậy: {conf_label}</p>
-                        <p style="color: white; margin: 5px 0;">📦 Số mẫu: {manual_count} sản phẩm được chọn</p>
+                        <p style="color: {text_color}; margin: 0; font-size: 1.1em; font-weight: bold;">💵 Giá đề xuất ({charge_unit}):</p>
+                        <h1 style="color: {text_color}; margin: 5px 0; font-size: 3.5em;">${final_price:,.2f}</h1>
+                        <p style="color: {text_color}; margin: 0; font-size: 0.9em;">Khoảng giá: <b>${final_min:,.2f}</b> – <b>${final_max:,.2f}</b></p>
+                        <hr style="margin: 10px 0; border-top: 1px solid rgba(0,0,0,0.2);">
+                        <p style="color: {text_color}; margin: 5px 0;">👤 {price_info['customer_description']}</p>
+                        <p style="color: {text_color}; margin: 5px 0;">📊 Điều chỉnh: {price_info['adjustment_label']}{year_adjustment_note}</p>
+                        <p style="color: {text_color}; margin: 5px 0;">🎯 Quyền tự quyết: {price_info['authority_range']}</p>
+                        <p style="color: {text_color}; margin: 5px 0;">📈 Độ tin cậy: {conf_label}</p>
+                        <p style="color: {text_color}; margin: 5px 0;">📦 Số mẫu: {manual_count} sản phẩm được chọn</p>
                     </div>
                     """, unsafe_allow_html=True)
                     
                     # Show base estimation info in expander
                     with st.expander("📋 Chi tiết ước tính cơ bản (từ sản phẩm đã chọn)", expanded=False):
-                        st.markdown(f"- **Giá ước tính gốc:** ${manual_estimation['estimated_price']:,.2f}")
-                        st.markdown(f"- **Khoảng giá gốc:** \\${manual_estimation['min_price']:,.2f} - \\${manual_estimation['max_price']:,.2f}")
-                        st.markdown(f"- **Giá trung vị:** ${manual_estimation['median_price']:,.2f}")
-                        st.markdown(f"- **Số mẫu được chọn:** {manual_count}")
+                        col_m1, col_m2 = st.columns(2)
+                        with col_m1:
+                            st.markdown(f"- **Giá gốc:** ${manual_estimation['estimated_price']:,.2f}")
+                            st.markdown(f"- **Khoảng giá:** \\${manual_estimation['min_price']:,.2f} - \\${manual_estimation['max_price']:,.2f}")
+                            st.markdown(f"- **Giá trung vị:** ${manual_estimation['median_price']:,.2f}")
+                            st.markdown(f"- **Số mẫu:** {manual_count}")
+                        
+                        # Confidence breakdown in right column
+                        with col_m2:
+                            if manual_estimation.get('confidence_breakdown'):
+                                st.markdown("**📊 Phân tích độ tin cậy:**")
+                                breakdown = manual_estimation['confidence_breakdown']
+                                factor_names = {
+                                    'sample_count': 'Số mẫu',
+                                    'recency': 'Độ mới',
+                                    'dimensional': 'Kích thước',
+                                    'stone_match': 'Đá',
+                                    'processing_match': 'Gia công',
+                                    'application_match': 'Ứng dụng',
+                                    'charge_unit_match': 'Đơn vị',
+                                    'priority_strictness': 'Tiêu chí',
+                                }
+                                for key, info in breakdown.items():
+                                    name = factor_names.get(key, key)
+                                    score = info.get('score', 0)
+                                    st.markdown(f"- {name}: **{score:.0f}**")
                     
                     # Export Report Button
                     st.divider()
