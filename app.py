@@ -1988,6 +1988,23 @@ def calculate_multi_surface_price(
     }
 
 
+def _get_priority_text(priority_value) -> str:
+    """Map priority strictness value to readable text."""
+    try:
+        val = float(str(priority_value).replace('%', ''))
+        if val >= 90:
+            return "Exact Match (P1)"
+        elif val >= 70:
+            return "Strict (P1-2)"
+        elif val >= 50:
+            return "Mixed (P1-3)"
+        elif val >= 30:
+            return "Relaxed (P2-4)"
+        else:
+            return "Flexible (All)"
+    except (ValueError, TypeError):
+        return str(priority_value)
+
 
 def display_estimation_result(
     estimation: Dict[str, Any],
@@ -2064,7 +2081,45 @@ def display_estimation_result(
         col_detail1, col_detail2 = st.columns(2)
         with col_detail1:
             st.markdown("**💰 Giá gốc (Base Price):**")
-            st.markdown(f"• Giá trung bình: **${estimation['estimated_price']:,.2f}** ({charge_unit})")
+            
+            # Step-by-step calculation if we have dimension info in estimation
+            length = estimation.get('query_length_cm', 0)
+            width = estimation.get('query_width_cm', 0) 
+            height = estimation.get('query_height_cm', 0)
+            
+            if length > 0 and width > 0 and height > 0:
+                volume_m3 = (length * width * height) / 1_000_000
+                area_m2 = (length * width) / 10_000
+                st.markdown(f"• **Bước 1 - Thể tích:** {length}×{width}×{height} cm = **{volume_m3:.4f} m³** ({area_m2:.4f} m²)")
+                
+                sample_count = manual_count if is_manual else estimation['match_count']
+                st.markdown(f"• **Bước 2 - Chuyển đổi:** Quy đổi {sample_count} mẫu về USD/m³")
+                
+                price_m3 = estimation.get('estimated_price_m3', 0)
+                if price_m3 > 0:
+                    st.markdown(f"• **Bước 3 - Giá TB (USD/m³):** ≈ **${price_m3:,.2f}** / m³")
+                    
+                    if charge_unit == 'USD/M3':
+                        display_price = price_m3
+                        st.markdown(f"• **Bước 4 - Giá gốc ({charge_unit}):** ${display_price:,.2f}")
+                    elif charge_unit == 'USD/M2':
+                        # USD/m³ → USD/m² = price_m3 × height(m)
+                        display_price = price_m3 * (height / 100)
+                        st.markdown(f"• **Bước 4 - Giá gốc ({charge_unit}):** ${price_m3:,.2f} × {height/100:.3f}m = ${display_price:,.2f}")
+                    elif charge_unit == 'USD/PC':
+                        display_price = price_m3 * volume_m3
+                        st.markdown(f"• **Bước 4 - Giá gốc ({charge_unit}):** ${price_m3:,.2f} × {volume_m3:.4f} m³ = ${display_price:,.2f}")
+                    else:
+                        display_price = estimation['estimated_price']
+                        st.markdown(f"• **Bước 4 - Giá gốc ({charge_unit}):** ${display_price:,.2f}")
+                    
+                    st.markdown("  *(Step 5-6: Yearly & Customer adjustments applied above)*")
+                else:
+                    st.markdown(f"• Giá trung bình: **${estimation['estimated_price']:,.2f}** ({charge_unit})")
+            else:
+                st.markdown(f"• Giá trung bình: **${estimation['estimated_price']:,.2f}** ({charge_unit})")
+            
+            st.markdown("---")
             st.markdown(f"• Khoảng giá: \\${estimation['min_price']:,.2f} - \\${estimation['max_price']:,.2f}")
             st.markdown(f"• Giá trung vị: ${estimation.get('median_price', estimation['estimated_price']):,.2f}")
             sample_count = manual_count if is_manual else estimation['match_count']
@@ -2076,28 +2131,39 @@ def display_estimation_result(
                 trend_pct = estimation.get('trend_pct', 0)
                 trend_emoji = '📈' if estimation['price_trend'] == 'up' else '📉'
                 trend_sign = '+' if estimation['price_trend'] == 'up' else '-'
-                st.markdown(f"• {trend_emoji} Xu hướng: {trend_sign}{abs(trend_pct):.1f}%")
+                # YoY label for clarity
+                st.markdown(f"• {trend_emoji} Xu hướng (YoY): {trend_sign}{abs(trend_pct):.1f}%")
         
         with col_detail2:
             if estimation.get('confidence_breakdown'):
                 st.markdown("**📊 Độ tin cậy:**")
                 breakdown = estimation['confidence_breakdown']
-                factor_names = {
-                    'sample_count': 'Số mẫu',
-                    'recency': 'Độ mới',
-                    'dimensional': 'Kích thước',
-                    'stone_match': 'Loại đá',
-                    'processing_match': 'Gia công',
-                    'application_match': 'Ứng dụng',
-                    'charge_unit_match': 'Đơn vị',
-                    'priority_strictness': 'Tiêu chí',
+                
+                # Enhanced factor names with clearer formatting
+                factor_config = {
+                    'sample_count': {'name': 'Số mẫu', 'format': lambda v: f"{v} samples"},
+                    'recency': {'name': 'Độ mới', 'format': lambda v: f"{v}"},
+                    'dimensional': {'name': 'Kích thước', 'format': lambda v: f"{v}"},
+                    'stone_match': {'name': 'Loại đá', 'format': lambda v: f"{v}"},
+                    'processing_match': {'name': 'Gia công', 'format': lambda v: f"{v}"},
+                    'application_match': {'name': 'Ứng dụng', 'format': lambda v: f"{v}"},
+                    'charge_unit_match': {'name': 'Đơn vị', 'format': lambda v: f"{v}"},
+                    'priority_strictness': {'name': 'Tiêu chí', 'format': lambda v: _get_priority_text(v)},
                 }
+                
                 for key, info in breakdown.items():
-                    name = factor_names.get(key, key)
+                    config = factor_config.get(key, {'name': key, 'format': lambda v: str(v)})
+                    name = config['name']
                     score = info.get('score', 0)
                     value = info.get('value', '')
-                    value_str = f" ({value})" if value else ""
-                    st.markdown(f"• {name}: **{score:.0f}**{value_str}")
+                    
+                    # Format: "X samples (Score: 75)" for sample_count
+                    # Format: "Mixed Priorities (Score: 56)" for priority_strictness
+                    if value:
+                        formatted_value = config['format'](value)
+                        st.markdown(f"• {name}: {formatted_value} (Score: **{score:.0f}**)")
+                    else:
+                        st.markdown(f"• {name}: Score **{score:.0f}**")
     
     return yearly_adj_info, final_price, final_min, final_max
 
@@ -2117,8 +2183,14 @@ def calculate_customer_price(base_price: float, customer_type: str,
     rules = CUSTOMER_PRICING_RULES.get(customer_type, CUSTOMER_PRICING_RULES['C'])
     adj = rules.get('base_adjustment', {'min': 0, 'max': 0})
     
-    min_price = round(base_price * (1 + adj['min']), 2)
-    max_price = round(base_price * (1 + adj['max']), 2)
+    # Guard against None values
+    if base_price is None or base_price <= 0:
+        base_price = 0
+    adj_min = adj.get('min', 0) or 0
+    adj_max = adj.get('max', 0) or 0
+    
+    min_price = round(base_price * (1 + adj_min), 2)
+    max_price = round(base_price * (1 + adj_max), 2)
     
     # Get authority range based on segment
     authority_range = None
@@ -2255,7 +2327,7 @@ def generate_price_report(
     
     <h2>💰 Price Estimation</h2>
     <table>
-        <tr class="highlight"><td>Estimated Price</td><td class="price">${estimation.get('estimated_price', 0):,.2f} {query_params.get('charge_unit', '')}</td></tr>
+        <tr><td>Estimated Price</td><td>${estimation.get('estimated_price', 0):,.2f} {query_params.get('charge_unit', '')}</td></tr>
         <tr><td>Price Range</td><td>${estimation.get('min_price', 0):,.2f} – ${estimation.get('max_price', 0):,.2f}</td></tr>
         <tr><td>Median Price</td><td>${estimation.get('median_price', 0):,.2f}</td></tr>
         <tr><td>Match Count</td><td>{estimation.get('match_count', 0)} products</td></tr>
@@ -2295,31 +2367,67 @@ def generate_price_report(
     <table>
         <tr>
             <th>#</th>
-            <th>Contract Name</th>
             <th>SKU</th>
-            <th>Stone</th>
-            <th>Processing</th>
+            <th>Main Processing</th>
+            <th>Application</th>
             <th>L×W×H (cm)</th>
-            <th>TLR</th>
-            <th>HS</th>
-            <th>Price</th>
+            <th>Price/m³</th>
+            <th>Price/m²</th>
+            <th>Original Price</th>
             <th>Unit</th>
+            <th>Wt.Dens</th>
+            <th>Size.F</th>
             <th>Year</th>
-            <th>Region</th>
         </tr>
 """
+        # Create lookup dicts for names (handle 3-element tuples: code, english, vietnamese)
+        proc_lookup = {code: en for code, en, vn in PROCESSING_CODES}
+        
         for i, (_, row) in enumerate(matched_products.head(20).iterrows(), 1):
-            contract = str(row.get('contract_name', 'N/A'))[:25]
             sku = str(row.get('sku', 'N/A'))[:15]
-            stone = row.get('stone_color_type', 'N/A')
-            proc = row.get('processing_code', 'N/A')
+            proc_code = row.get('processing_code', 'N/A')
+            proc_name = proc_lookup.get(proc_code, proc_code)[:20]
+            
+            # Get application name directly from dataframe (populated by salesforce_loader)
+            app_name = row.get('application', 'N/A') or 'N/A'
+            # Truncate if too long (e.g. "Paving stone / Paving slab" -> "Paving stone / Pa...")
+            if len(app_name) > 25:
+                app_name = app_name[:25]
+            
             dims = f"{row.get('length_cm', 0):.0f}×{row.get('width_cm', 0):.0f}×{row.get('height_cm', 0):.0f}"
-            tlr = row.get('specific_gravity', None)
-            tlr_str = f"{tlr:.2f}" if tlr and pd.notna(tlr) else "calc"
-            hs = row.get('hs_coefficient', None)
-            hs_str = f"{hs:.2f}" if hs and pd.notna(hs) else "calc"
-            price = row.get('sales_price', 0)
+            
+            # Calculate price/m³ and price/m² 
+            l_cm = row.get('length_cm', 0) or 0
+            w_cm = row.get('width_cm', 0) or 0
+            h_cm = row.get('height_cm', 0) or 0
+            original_price = row.get('sales_price', 0) or 0
             unit = row.get('charge_unit', 'N/A')
+            tlr_val = row.get('specific_gravity', 2.7) or 2.7
+            hs_val = row.get('hs_coefficient', 1.0) or 1.0
+            
+            # Convert to get price per m³ and m²
+            vol_m3 = (l_cm * w_cm * h_cm) / 1_000_000 if l_cm and w_cm and h_cm else 0.001
+            area_m2 = (l_cm * w_cm) / 10_000 if l_cm and w_cm else 0.01
+            
+            if unit == 'USD/M3':
+                price_m3 = original_price
+                price_m2 = original_price * (h_cm / 100) if h_cm else 0
+            elif unit == 'USD/M2':
+                price_m2 = original_price
+                price_m3 = original_price / (h_cm / 100) if h_cm else 0
+            elif unit == 'USD/PC':
+                price_m3 = original_price / vol_m3 if vol_m3 > 0 else 0
+                price_m2 = original_price / area_m2 if area_m2 > 0 else 0
+            elif unit == 'USD/TON':
+                price_m3 = original_price * tlr_val * hs_val
+                price_m2 = price_m3 * (h_cm / 100) if h_cm else 0
+            else:
+                price_m3 = original_price
+                price_m2 = original_price
+            
+            # Weight Density (TLR) and Size Factor (HS)
+            tlr_str = f"{tlr_val:.2f}" if pd.notna(tlr_val) else "2.70"
+            hs_str = f"{hs_val:.2f}" if pd.notna(hs_val) else "1.00"
             
             # Format year as integer
             year_val = row.get('fy_year')
@@ -2327,9 +2435,8 @@ def generate_price_report(
                 year = f"{int(float(year_val))}"
             except (ValueError, TypeError):
                 year = "N/A"
-                
-            region = str(row.get('customer_regional_group', 'N/A'))[:10]
-            html += f"        <tr><td>{i}</td><td>{contract}</td><td>{sku}</td><td>{stone}</td><td>{proc}</td><td>{dims}</td><td>{tlr_str}</td><td>{hs_str}</td><td>${price:,.2f}</td><td>{unit}</td><td>{year}</td><td>{region}</td></tr>\n"
+            
+            html += f"        <tr><td>{i}</td><td>{sku}</td><td>{proc_name}</td><td>{app_name}</td><td>{dims}</td><td>${price_m3:,.2f}</td><td>${price_m2:,.2f}</td><td>${original_price:,.2f}</td><td>{unit}</td><td>{tlr_str}</td><td>{hs_str}</td><td>{year}</td></tr>\n"
         
         if len(matched_products) > 20:
             html += f"        <tr><td colspan='12'>... and {len(matched_products) - 20} more products</td></tr>\n"
@@ -3138,6 +3245,10 @@ class SimilarityPricePredictor:
             'confidence_breakdown': confidence_breakdown,
             'years_used': years_used,
             'price_m3': round(weighted_price_m3, 2),
+            'estimated_price_m3': round(weighted_price_m3, 2),  # Alias for step-by-step display
+            'query_length_cm': query_length_cm,  # For step-by-step display
+            'query_width_cm': query_width_cm,    # For step-by-step display
+            'query_height_cm': query_height_cm,  # For step-by-step display
             'price_trend': price_trend,
             'trend_pct': round(trend_pct, 1) if trend_pct is not None else None,
             'avg_fy_year': round(avg_fy_year, 1) if avg_fy_year is not None else None
@@ -3342,8 +3453,17 @@ def main():
                 help="Chọn một hoặc nhiều ứng dụng. Để trống = Tất cả"
             )
             
-            # 6. Đơn vị tính (Unit) - SIXTH
-            charge_unit = st.selectbox("Đơn vị tính giá", CHARGE_UNITS)
+            # 6. Đơn vị tính (Unit) - SIXTH with height recommendation
+            charge_unit = st.selectbox(
+                "Đơn vị tính giá",
+                CHARGE_UNITS,
+                help="💡 **Khuyến nghị theo chiều dày:**\n- Dày > 4cm → USD/m³\n- Dày < 4cm → USD/m²"
+            )
+            # Show dynamic recommendation based on height
+            if height > 4:
+                st.caption("💡 *Khuyến nghị: USD/M³ (chiều dày > 4cm)*")
+            elif height > 0:
+                st.caption("💡 *Khuyến nghị: USD/M2 (chiều dày < 4cm)*")
             
             # 7. Phân loại khách hàng (Customer Classification) - SEVENTH
             customer_type = st.selectbox(
@@ -3736,11 +3856,11 @@ def main():
             
             product_segment = classify_segment(estimated_price_m3, height, stone_color, processing_code)
             segment_color = get_segment_color(product_segment)
-            segment_vn = {
-                'Super premium': 'Siêu cao cấp',
-                'Premium': 'Cao cấp', 
-                'Common': 'Phổ thông',
-                'Economy': 'Kinh tế'
+            segment_bilingual = {
+                'Super premium': 'Super Premium / Siêu cao cấp',
+                'Premium': 'Premium / Cao cấp', 
+                'Common': 'Common / Phổ thông',
+                'Economy': 'Economy / Kinh tế'
             }.get(product_segment, product_segment)
             
             col_info1, col_info2 = st.columns(2)
@@ -3748,15 +3868,15 @@ def main():
                 st.markdown(f"- Kích thước: {length} x {width} x {height} cm")
                 st.markdown(f"- Thể tích: {volume_m3:.6f} m³")
                 st.markdown(f"- Diện tích: {area_m2:.4f} m²")
-                # Price Segment with color badge
-                st.markdown(f"- Phân khúc giá: <span style='background-color:{segment_color}; color:white; padding:2px 8px; border-radius:4px; font-weight:bold'>{segment_vn}</span>", unsafe_allow_html=True)
+                # Price Segment with color badge - bilingual
+                st.markdown(f"- Phân khúc giá: <span style='background-color:{segment_color}; color:white; padding:2px 8px; border-radius:4px; font-weight:bold'>{segment_bilingual}</span>", unsafe_allow_html=True)
             with col_info2:
                 st.markdown(f"- TLR: {tlr} tấn/m³")
                 st.markdown(f"- HS: {hs}")
                 st.markdown(f"- Khối lượng: **{weight_tons:.4f} tấn**")
                 # Show customer adjustment info for segment
-                if customer_type:
-                    customer_info = calculate_customer_price(estimation['estimated_price'] if estimation else 0, customer_type, product_segment)
+                if customer_type and estimation:
+                    customer_info = calculate_customer_price(estimation['estimated_price'], customer_type, product_segment)
                     if customer_info and customer_info.get('adjustment_label'):
                         st.markdown(f"- Điều chỉnh KH {customer_type}: {customer_info['adjustment_label']}")
         
@@ -3847,26 +3967,47 @@ def main():
                 st.metric("Trung vị", f"${match_prices.median():,.2f}")
             
             # Show table of ALL matches with Regional Group included
-            # Calculate price_m2 if not present
+            # Calculate price_m2 if not present - using correct conversion logic
             if 'price_m2' not in matches.columns:
-                matches['price_m2'] = matches.apply(
-                    lambda row: row['sales_price'] / (row['length_cm'] * row['width_cm'] / 10000) 
-                    if row['charge_unit'] == 'USD/M2' else (
-                        row['price_m3'] / (row['height_cm'] / 100) if pd.notna(row.get('price_m3')) and row.get('height_cm', 0) > 0 else None
-                    ),
-                    axis=1
-                )
+                def calc_price_m2(row):
+                    unit = row.get('charge_unit', '')
+                    sales_p = row.get('sales_price', 0) or 0
+                    h_cm = row.get('height_cm', 0) or 0
+                    l_cm = row.get('length_cm', 0) or 0
+                    w_cm = row.get('width_cm', 0) or 0
+                    tlr = row.get('specific_gravity', 2.7) or 2.7
+                    hs = row.get('hs_coefficient', 1.0) or 1.0
+                    
+                    if unit == 'USD/M2':
+                        # Already price per m² - no calculation needed!
+                        return sales_p
+                    elif unit == 'USD/M3':
+                        # Price/m² = Price/m³ × height(m)
+                        return sales_p * (h_cm / 100) if h_cm > 0 else 0
+                    elif unit == 'USD/PC':
+                        # Price/m² = Price per piece ÷ area(m²)
+                        area_m2 = (l_cm * w_cm) / 10000 if l_cm > 0 and w_cm > 0 else 0.01
+                        return sales_p / area_m2 if area_m2 > 0 else 0
+                    elif unit == 'USD/TON':
+                        # Price/m² = Price/ton × TLR × HS × height(m)
+                        return sales_p * tlr * hs * (h_cm / 100) if h_cm > 0 else 0
+                    else:
+                        return sales_p
+                matches['price_m2'] = matches.apply(calc_price_m2, axis=1)
             
+            # Reorder columns per user request
             display_cols = [
-                # Primary columns: Contract info, then dimensions
-                'contract_product_name', 'contract_name',
+                # Primary: Contract name, dimensions
+                'contract_product_name',
                 'length_cm', 'width_cm', 'height_cm',
-                # SKU and Application before prices (per user request)
-                'sku', 'application_code', 'application',
-                # Price columns
+                # Price info
                 'sales_price', 'charge_unit', 'price_m2', 'price_m3',
+                # Date
                 'created_date',
+                # Product identification
+                'sku', 'application_code', 'application',
                 # Secondary columns
+                'contract_name',
                 'stone_color_type',
                 'processing_code', 'processing_name',
                 'account_code', 'customer_regional_group', 'billing_country',
@@ -3924,6 +4065,9 @@ def main():
                 
                 with col_recalc:
                     recalc_btn = st.button("🔄 Tính lại giá từ sản phẩm đã chọn", disabled=(selected_count < 3))
+                    # Show yearly adjustment reminder
+                    if apply_yearly_adjustment:
+                        st.caption(f"📈 Tỷ lệ tăng giá hàng năm: **{yearly_increase_pct:.1f}%**")
                 
                 # Recalculate price from selected records with volume normalization
                 if recalc_btn and selected_count >= 3:
@@ -4090,6 +4234,34 @@ def main():
                         is_manual=True,
                         manual_count=manual_count,
                     )
+                    
+                    # Show product info and segment (like main estimation)
+                    st.markdown("##### 🧱 Thông tin sản phẩm:")
+                    segment_color = get_segment_color(segment)
+                    segment_bilingual = {
+                        'Super premium': 'Super Premium / Siêu cao cấp',
+                        'Premium': 'Premium / Cao cấp', 
+                        'Common': 'Common / Phổ thông',
+                        'Economy': 'Economy / Kinh tế'
+                    }.get(segment, segment)
+                    
+                    volume_m3 = calculate_volume_m3(length, width, height)
+                    area_m2 = calculate_area_m2(length, width)
+                    
+                    col_info1, col_info2 = st.columns(2)
+                    with col_info1:
+                        st.markdown(f"- Kích thước: {length} x {width} x {height} cm")
+                        st.markdown(f"- Thể tích: {volume_m3:.6f} m³")
+                        st.markdown(f"- Diện tích: {area_m2:.4f} m²")
+                        st.markdown(f"- Phân khúc giá: <span style='background-color:{segment_color}; color:white; padding:2px 8px; border-radius:4px; font-weight:bold'>{segment_bilingual}</span>", unsafe_allow_html=True)
+                    with col_info2:
+                        tlr = get_tlr(stone_color, processing_code)
+                        hs = get_hs_factor((length, width, height), processing_code)
+                        weight_tons = volume_m3 * tlr
+                        st.markdown(f"- TLR: {tlr} tấn/m³")
+                        st.markdown(f"- HS: {hs}")
+                        st.markdown(f"- Khối lượng: **{weight_tons:.4f} tấn**")
+                        st.markdown(f"- Điều chỉnh KH {customer_type}: {price_info['adjustment_label']}")
                     
                     # Export Report Button
                     st.divider()
