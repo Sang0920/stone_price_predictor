@@ -2731,15 +2731,8 @@ class SimilarityPricePredictor:
             mask &= df['application_code'].isin(application_codes)
         diagnostics['filter_counts']['after_application'] = mask.sum()
         
-        # 4. Charge unit
-        if charge_unit:
-            mask &= df['charge_unit'] == charge_unit
-        diagnostics['filter_counts']['after_charge_unit'] = mask.sum()
-        
-        # 5. Region
-        if 'customer_regional_group' in df.columns and region_priority == 'Ưu tiên 1' and customer_regional_group:
-            mask &= df['customer_regional_group'] == customer_regional_group
-        diagnostics['filter_counts']['after_region'] = mask.sum()
+        # Note: Charge unit and Region filters are applied LATER
+        # to allow better diagnostics (showing available alternatives)
         
         df_filtered = df[mask].copy()
         
@@ -2755,10 +2748,48 @@ class SimilarityPricePredictor:
                 app_names = ', '.join(application_codes) if application_codes else ''
                 diagnostics['reason'] = f"Không tìm thấy ứng dụng '{app_names}' cho các tiêu chí đã chọn"
                 diagnostics['suggestions'].append("Thử bỏ chọn ứng dụng cụ thể")
-            elif diagnostics['filter_counts']['after_charge_unit'] == 0:
-                diagnostics['reason'] = f"Không tìm thấy đơn vị tính '{charge_unit}'"
-                diagnostics['suggestions'].append("Thử đổi đơn vị tính giá")
             else:
+                diagnostics['reason'] = "Không tìm thấy sản phẩm với các tiêu chí đã chọn"
+            return diagnostics
+        
+        # 4. Check charge_unit availability (don't filter, just analyze)
+        # Get all available charge units in the filtered data
+        available_units = df_filtered['charge_unit'].dropna().unique().tolist()
+        diagnostics['available_charge_units'] = available_units
+        
+        # Check if requested charge_unit has data
+        if charge_unit:
+            unit_mask = df_filtered['charge_unit'] == charge_unit
+            diagnostics['filter_counts']['after_charge_unit'] = unit_mask.sum()
+            
+            if unit_mask.sum() == 0 and len(available_units) > 0:
+                # Requested charge_unit not available, but others are
+                other_units = [u for u in available_units if u != charge_unit]
+                if other_units:
+                    diagnostics['reason'] = f"Không có dữ liệu đơn vị '{charge_unit}' cho các tiêu chí này"
+                    diagnostics['suggestions'].append(f"Đổi sang đơn vị có sẵn: {', '.join(other_units)}")
+                    # Count matches for each available unit
+                    unit_counts = df_filtered['charge_unit'].value_counts().to_dict()
+                    diagnostics['charge_unit_counts'] = unit_counts
+                    return diagnostics
+            
+            # Apply charge unit filter for further analysis
+            df_filtered = df_filtered[unit_mask].copy()
+        
+        # 5. Region
+        if 'customer_regional_group' in df_filtered.columns and region_priority == 'Ưu tiên 1' and customer_regional_group:
+            region_mask = df_filtered['customer_regional_group'] == customer_regional_group
+            if region_mask.sum() == 0:
+                # Check available regions
+                available_regions = df_filtered['customer_regional_group'].dropna().unique().tolist()
+                diagnostics['reason'] = f"Không có dữ liệu vùng '{customer_regional_group}'"
+                if available_regions:
+                    diagnostics['suggestions'].append(f"Các vùng có sẵn: {', '.join(str(r) for r in available_regions[:5])}")
+            df_filtered = df_filtered[region_mask].copy()
+        diagnostics['filter_counts']['after_region'] = len(df_filtered)
+        
+        if len(df_filtered) == 0:
+            if not diagnostics['reason']:
                 diagnostics['reason'] = "Không tìm thấy sản phẩm với các tiêu chí đã chọn"
             return diagnostics
         
@@ -2788,8 +2819,33 @@ class SimilarityPricePredictor:
             dim_issues.append(f"Dài {length_cm}cm (gần nhất: {closest_length}cm, sai lệch: {length_diff:.0f}cm > ±{tolerances['length']}cm)")
         
         if dim_issues:
-            diagnostics['reason'] = "Không tìm thấy kích thước phù hợp:\n• " + "\n• ".join(dim_issues)
-            diagnostics['suggestions'].append("Thử chọn Ưu tiên 3 cho Kích thước (sai lệch lớn)")
+            # SMART CHECK: Before suggesting dimension changes, check if OTHER charge units
+            # would have matching dimensions. This prioritizes qualitative params (left column)
+            # over priority settings (right column).
+            other_units_with_matches = []
+            if charge_unit and 'available_charge_units' in diagnostics:
+                for other_unit in diagnostics['available_charge_units']:
+                    if other_unit == charge_unit:
+                        continue
+                    # Try finding matches with this other unit
+                    test_matches = self.find_matching_products(
+                        stone_color_type, processing_code, length_cm, width_cm, height_cm,
+                        application_codes, customer_regional_group, other_unit,
+                        stone_priority, processing_priority, dimension_priority, region_priority
+                    )
+                    if len(test_matches) > 0:
+                        other_units_with_matches.append((other_unit, len(test_matches)))
+            
+            if other_units_with_matches:
+                # Other charge units have matching products - prioritize this suggestion!
+                units_info = ", ".join([f"{u} ({c} sp)" for u, c in other_units_with_matches])
+                diagnostics['reason'] = f"Không có dữ liệu '{charge_unit}' cho kích thước này"
+                diagnostics['suggestions'] = [f"Đổi sang đơn vị có sẵn: {units_info}"]
+                diagnostics['other_units_with_matches'] = other_units_with_matches
+            else:
+                # No other charge units have matches - suggest dimension changes
+                diagnostics['reason'] = "Không tìm thấy kích thước phù hợp:\n• " + "\n• ".join(dim_issues)
+                diagnostics['suggestions'].append("Thử chọn Ưu tiên 3 cho Kích thước (sai lệch lớn)")
         
         diagnostics['filter_counts']['after_dimensions'] = len(self.find_matching_products(
             stone_color_type, processing_code, length_cm, width_cm, height_cm,
@@ -3487,7 +3543,7 @@ def main():
                         'Ưu tiên 2': '2 - Cùng chủng loại',
                         'Ưu tiên 3': '3 - Tất cả loại đá',
                     }[x],
-                    index=0  # Default: Ưu tiên 1 (Đúng màu đá)
+                    index=1  # Default: Ưu tiên 2 (Cùng chủng loại)
                 )
                 # Show stone priority info
                 if stone_priority == 'Ưu tiên 2':
@@ -3504,7 +3560,7 @@ def main():
                         'Ưu tiên 2': '2 - Đúng nhóm gia công',
                         'Ưu tiên 3': '3 - Tất cả gia công',
                     }[x],
-                    index=1  # Default: Ưu tiên 2
+                    index=2  # Default: Ưu tiên 3 (Tất cả gia công)
                 )
                 
                 # Show processing code dropdown when Priority 1 is selected
@@ -3999,19 +4055,20 @@ def main():
             display_cols = [
                 # Primary: Contract name, dimensions
                 'contract_product_name',
+                'contract_name',
                 'length_cm', 'width_cm', 'height_cm',
                 # Price info
                 'sales_price', 'charge_unit', 'price_m2', 'price_m3',
                 # Date
                 'created_date',
                 # Product identification
-                'sku', 'application_code', 'application',
+                'processing_name', 'application', 'segment', 'sku', 
                 # Secondary columns
-                'contract_name',
                 'stone_color_type',
-                'processing_code', 'processing_name',
+                'application_code'
+                'processing_code', 
                 'account_code', 'customer_regional_group', 'billing_country',
-                'segment', 'specific_gravity', 'hs_coefficient', 'fy_year',
+                'specific_gravity', 'hs_coefficient', 'fy_year',
             ]
             available_cols = [col for col in display_cols if col in matches.columns]
             
