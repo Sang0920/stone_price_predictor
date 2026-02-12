@@ -359,6 +359,47 @@ def test_stone_family_mapping():
     return all_pass
 
 
+def test_get_all_charge_units(predictor, df):
+    """Test Get All Charge Units: bypasses charge_unit filter."""
+    print("\n💱 Testing Get All Charge Units...")
+    
+    # Test 1: With get_all_charge_units=False (default), should filter by charge_unit
+    params_filtered = make_params(charge_unit='USD/PC', get_all_charge_units=False)
+    matches_filtered = predictor.find_matching_products(**params_filtered)
+    
+    # Test 2: With get_all_charge_units=True, should include all charge units
+    params_all = make_params(charge_unit='USD/PC', get_all_charge_units=True)
+    matches_all = predictor.find_matching_products(**params_all)
+    
+    all_pass = True
+    
+    # Check that filtered results only have the specified charge_unit
+    if len(matches_filtered) > 0:
+        units_filtered = matches_filtered['charge_unit'].unique().tolist()
+        success = all(u == 'USD/PC' for u in units_filtered)
+        all_pass = all_pass and success
+        print(f"  {'✅' if success else '❌'} Filtered: All {len(matches_filtered)} matches are USD/PC: {units_filtered}")
+    else:
+        print(f"  ⚠️ Filtered: No matches found for USD/PC")
+    
+    # Check that unfiltered results include more/equal products
+    if len(matches_all) > 0:
+        units_all = matches_all['charge_unit'].unique().tolist()
+        success = len(matches_all) >= len(matches_filtered)
+        all_pass = all_pass and success
+        print(f"  {'✅' if success else '❌'} All units: {len(matches_all)} matches >= {len(matches_filtered)} filtered, units: {units_all}")
+        
+        # If there are products with different units, the all-units count should be strictly more
+        if len(units_all) > 1:
+            success2 = len(matches_all) > len(matches_filtered)
+            all_pass = all_pass and success2
+            print(f"  {'✅' if success2 else '❌'} Multiple units found, all-units count ({len(matches_all)}) > filtered ({len(matches_filtered)})")
+    else:
+        print(f"  ⚠️ All units: No matches found")
+    
+    return all_pass
+
+
 def run_all_tests():
     """Run all priority state tests."""
     print("=" * 70)
@@ -416,6 +457,12 @@ def run_all_tests():
     results.append(("Region P1 (Country)", test_region_priority_1(predictor, df)))
     results.append(("Region P2 (Group)", test_region_priority_2(predictor, df)))
     results.append(("Region P3 (All)", test_region_priority_3(predictor, df)))
+    
+    # Charge Unit Tests
+    print("\n" + "=" * 50)
+    print("CHARGE UNIT TESTS")
+    print("=" * 50)
+    results.append(("Get All Charge Units", test_get_all_charge_units(predictor, df)))
     
     # Summary
     print("\n" + "=" * 70)

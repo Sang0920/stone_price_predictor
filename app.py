@@ -2568,6 +2568,7 @@ class SimilarityPricePredictor:
         application_codes: list,  # List of application codes (empty = all)
         customer_regional_group: str,
         charge_unit: str,
+        get_all_charge_units: bool = False,  # If True, skip charge_unit filter
         stone_priority: str = 'Ưu tiên 1',  # Exact, Same Family, All
         processing_priority: str = 'Ưu tiên 1',  # Exact, Group, All
         dimension_priority: str = 'Ưu tiên 1 - Đúng kích thước',
@@ -2626,7 +2627,7 @@ class SimilarityPricePredictor:
             mask &= df['application_code'].isin(expanded_codes)
         
         # 4. Charge Unit Filter
-        if charge_unit:
+        if charge_unit and not get_all_charge_units:
             mask &= df['charge_unit'] == charge_unit
         
         # 5. Market/Region Filter based on priority
@@ -2681,6 +2682,7 @@ class SimilarityPricePredictor:
         application_codes: list,
         customer_regional_group: str,
         charge_unit: str,
+        get_all_charge_units: bool = False,
         stone_priority: str = 'Ưu tiên 1',
         processing_priority: str = 'Ưu tiên 1',
         dimension_priority: str = 'Ưu tiên 1 - Đúng kích thước',
@@ -2757,8 +2759,8 @@ class SimilarityPricePredictor:
         available_units = df_filtered['charge_unit'].dropna().unique().tolist()
         diagnostics['available_charge_units'] = available_units
         
-        # Check if requested charge_unit has data
-        if charge_unit:
+        # Check if requested charge_unit has data (skip when get_all_charge_units is True)
+        if charge_unit and not get_all_charge_units:
             unit_mask = df_filtered['charge_unit'] == charge_unit
             diagnostics['filter_counts']['after_charge_unit'] = unit_mask.sum()
             
@@ -2775,6 +2777,8 @@ class SimilarityPricePredictor:
             
             # Apply charge unit filter for further analysis
             df_filtered = df_filtered[unit_mask].copy()
+        else:
+            diagnostics['filter_counts']['after_charge_unit'] = len(df_filtered)
         
         # 5. Region
         if 'customer_regional_group' in df_filtered.columns and region_priority == 'Ưu tiên 1' and customer_regional_group:
@@ -2822,8 +2826,9 @@ class SimilarityPricePredictor:
             # SMART CHECK: Before suggesting dimension changes, check if OTHER charge units
             # would have matching dimensions. This prioritizes qualitative params (left column)
             # over priority settings (right column).
+            # Skip this check when get_all_charge_units is True (already searching all units)
             other_units_with_matches = []
-            if charge_unit and 'available_charge_units' in diagnostics:
+            if charge_unit and not get_all_charge_units and 'available_charge_units' in diagnostics:
                 for other_unit in diagnostics['available_charge_units']:
                     if other_unit == charge_unit:
                         continue
@@ -3320,6 +3325,7 @@ class SimilarityPricePredictor:
         application_codes: list,  # List of application codes (empty = all)
         customer_regional_group: str,
         charge_unit: str,
+        get_all_charge_units: bool = False,
     ) -> Tuple[Dict[str, Any], pd.DataFrame, str]:
         """
         Try to find matches with automatic priority escalation.
@@ -3349,6 +3355,7 @@ class SimilarityPricePredictor:
                 application_codes=application_codes,
                 customer_regional_group=customer_regional_group,
                 charge_unit=charge_unit,
+                get_all_charge_units=get_all_charge_units,
                 stone_priority=stone_p,
                 processing_priority=proc_p,
                 dimension_priority=dim_p,
@@ -3520,6 +3527,14 @@ def main():
                 st.caption("💡 *Khuyến nghị: USD/M³ (chiều dày > 4cm)*")
             elif height > 0:
                 st.caption("💡 *Khuyến nghị: USD/M2 (chiều dày < 4cm)*")
+            
+            # Get all charge units checkbox
+            get_all_charge_units = st.checkbox(
+                "Get all charge units",
+                value=False,
+                help="Khi chọn, tìm tất cả sản phẩm không lọc theo đơn vị tính giá. "
+                     "Giá dự đoán và tính lại giá sẽ được quy đổi về đơn vị đã chọn ở trên."
+            )
             
             # 7. Phân loại khách hàng (Customer Classification) - SEVENTH
             customer_type = st.selectbox(
@@ -3703,6 +3718,7 @@ def main():
                 application_codes=selected_applications,
                 customer_regional_group=regional_group_selected,
                 charge_unit=charge_unit,
+                get_all_charge_units=get_all_charge_units,
                 stone_priority=stone_priority,
                 processing_priority=processing_priority,
                 dimension_priority=dimension_priority,
@@ -3877,6 +3893,7 @@ def main():
                     application_codes=selected_applications,
                     customer_regional_group=regional_group_selected,
                     charge_unit=charge_unit,
+                    get_all_charge_units=get_all_charge_units,
                     stone_priority=stone_priority,
                     processing_priority=processing_priority,
                     dimension_priority=dimension_priority,
