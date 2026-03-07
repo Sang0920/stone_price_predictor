@@ -2061,19 +2061,60 @@ def display_estimation_result(
     
     manual_info_line = f'<p style="color: {text_color}; margin: 5px 0;">📦 Số mẫu: {manual_count} sản phẩm được chọn</p>' if is_manual else ""
     
-    st.markdown(f"""
-    <div style="background-color: {conf_color}; padding: 20px; border-radius: 10px; margin-bottom: 10px;">
-        <p style="color: {text_color}; margin: 0; font-size: 1.1em; font-weight: bold;">💵 Giá đề xuất ({charge_unit}):</p>
-        <h1 style="color: {text_color}; margin: 5px 0; font-size: 3.5em;">${final_price:,.2f}</h1>
-        <p style="color: {text_color}; margin: 0; font-size: 0.9em;">Khoảng giá: <b>${final_min:,.2f}</b> – <b>${final_max:,.2f}</b></p>
-        <hr style="margin: 10px 0; border-top: 1px solid rgba(0,0,0,0.2);">
-        <p style="color: {text_color}; margin: 5px 0;">👤 {price_info['customer_description']}</p>
-        <p style="color: {text_color}; margin: 5px 0;">📊 Điều chỉnh: {price_info['adjustment_label']}{year_adjustment_note}</p>
-        <p style="color: {text_color}; margin: 5px 0;">🎯 Quyền tự quyết: {price_info['authority_range']}</p>
-        <p style="color: {text_color}; margin: 5px 0;">📈 Độ tin cậy: {conf_label}</p>
-        {manual_info_line}
-    </div>
-    """, unsafe_allow_html=True)
+    # Calculate USD/m³ equivalent when charge_unit is not USD/M3
+    m3_equiv_line = ""
+    if charge_unit != 'USD/M3':
+        length = estimation.get('query_length_cm', 0)
+        width = estimation.get('query_width_cm', 0)
+        height = estimation.get('query_height_cm', 0)
+        
+        # Calculate m³ equiv using both rounded and exact final_price
+        rounded_price = round(final_price, 2)  # What's displayed as the main price
+        
+        price_m3_rounded = None
+        price_m3_exact = None
+        if charge_unit == 'USD/PC' and length > 0 and width > 0 and height > 0:
+            vol_m3 = (length * width * height) / 1_000_000
+            if vol_m3 > 0:
+                price_m3_rounded = rounded_price / vol_m3
+                price_m3_exact = final_price / vol_m3
+        elif charge_unit == 'USD/M2' and height > 0:
+            price_m3_rounded = rounded_price / (height / 100)
+            price_m3_exact = final_price / (height / 100)
+        elif charge_unit == 'USD/TON':
+            tlr = estimation.get('specific_gravity', 2.7) or 2.7
+            hs = estimation.get('hs_coefficient', 1.0) or 1.0
+            price_m3_rounded = rounded_price * tlr * hs
+            price_m3_exact = final_price * tlr * hs
+        
+        if price_m3_rounded and price_m3_rounded > 0:
+            m3_equiv_line = (
+                f'<p style="color: {text_color}; margin: 2px 0; font-size: 1.1em; opacity: 0.85;">'
+                f'≈ <b>&#36;{price_m3_rounded:,.2f}</b> USD/m³</p>'
+                f'<p style="color: {text_color}; margin: 2px 0; font-size: 0.85em; opacity: 0.65;">'
+                f'Giá chính xác: &#36;{final_price:,.6f} → <b>&#36;{price_m3_exact:,.2f}</b> USD/m³</p>'
+            )
+    
+    # Build price card HTML - avoid blank lines which break Streamlit's markdown parser
+    card_parts = [
+        f'<div style="background-color: {conf_color}; padding: 20px; border-radius: 10px; margin-bottom: 10px;">',
+        f'<p style="color: {text_color}; margin: 0; font-size: 1.1em; font-weight: bold;">💵 Giá đề xuất ({charge_unit}):</p>',
+        f'<h1 style="color: {text_color}; margin: 5px 0; font-size: 3.5em;">&#36;{final_price:,.2f}</h1>',
+    ]
+    if m3_equiv_line:
+        card_parts.append(m3_equiv_line)
+    card_parts.extend([
+        f'<p style="color: {text_color}; margin: 0; font-size: 0.9em;">Khoảng giá: <b>&#36;{final_min:,.2f}</b> – <b>&#36;{final_max:,.2f}</b></p>',
+        f'<hr style="margin: 10px 0; border-top: 1px solid rgba(0,0,0,0.2);">',
+        f'<p style="color: {text_color}; margin: 5px 0;">👤 {price_info["customer_description"]}</p>',
+        f'<p style="color: {text_color}; margin: 5px 0;">📊 Điều chỉnh: {price_info["adjustment_label"]}{year_adjustment_note}</p>',
+        f'<p style="color: {text_color}; margin: 5px 0;">🎯 Quyền tự quyết: {price_info["authority_range"]}</p>',
+        f'<p style="color: {text_color}; margin: 5px 0;">📈 Độ tin cậy: {conf_label}</p>',
+    ])
+    if manual_info_line:
+        card_parts.append(manual_info_line)
+    card_parts.append('</div>')
+    st.markdown('\n'.join(card_parts), unsafe_allow_html=True)
     
     # === Display Expander with Details ===
     expander_title = "📋 Chi tiết ước tính cơ bản" + (" (từ sản phẩm đã chọn)" if is_manual else "")
@@ -3667,7 +3708,7 @@ def main():
             regional_group_selected = customer_regional_group  # Use the selected regional group
             
             st.divider()
-            st.markdown("#### 📅 Cài đặt tính toán giá")
+            st.markdown("#### ⚙️ Cài đặt tính toán giá")
             use_recent_only = st.checkbox(
                 "Chỉ sử dụng dữ liệu gần nhất",
                 value=True,
@@ -4247,6 +4288,10 @@ def main():
                         'avg_fy_year': avg_fy_year,
                         'total_matches': len(matches),
                         'price_m3': avg_price_m3,
+                        'estimated_price_m3': avg_price_m3,
+                        'query_length_cm': length,
+                        'query_width_cm': width,
+                        'query_height_cm': height,
                         'confidence': manual_conf['level'],
                         'confidence_score': manual_conf['score'],
                         'confidence_breakdown': manual_conf['breakdown'],
