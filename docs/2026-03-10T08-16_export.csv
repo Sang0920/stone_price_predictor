@@ -1,0 +1,4 @@
+﻿select,contract_product_name,contract_name,length_cm,width_cm,height_cm,sales_price,charge_unit,price_m2,price_m3,created_date,processing_name,application,segment,sku,stone_color_type,account_code,customer_regional_group,billing_country,specific_gravity,hs_coefficient,fy_year
+false,Black Basalt Paving 30303 (160),42/N-X598/20,30,30,3,2.88,USD/PC,32,1066.6666666666665,2024-07-26,Flamed Brush,Cubes / Cobbles,Premium,BX1.0DOC1-0300300030,BX,X59,Nhóm đầu 5,Japan,2.7,1,2024
+false,Black Basalt Paving 30303 (160),18/N-X598/20,30,30,3,2.88,USD/PC,32,1066.6666666666665,2024-07-24,Flamed Brush,Cubes / Cobbles,Premium,BX1.0DOC1-0300300030,BX,X59,Nhóm đầu 5,Japan,2.7,1,2024
+false,Black Basalt Paving 30303 (160),01/N-X59822,30,30,3,2.88,USD/PC,32,1071.6279069767443,2024-02-01,Flamed Brush,Cubes / Cobbles,Premium,BX1.0DOC1-0300300030,BX,X59,Nhóm đầu 5,Japan,2.7,1,2024
