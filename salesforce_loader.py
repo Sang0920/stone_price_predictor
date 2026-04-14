@@ -573,6 +573,210 @@ class SalesforceDataLoader:
         
         return pd.DataFrame(data)
     
+    def get_latest_pricebook_products(self) -> pd.DataFrame:
+        """
+        Get products from the latest Price Book of every Tier 1 customer.
+        
+        Logic:
+        1. Query Accounts where RecordType.Name starts with '1' (Tier 1),
+           Account_Code__c is not null, and Price_Book__c is not null.
+        2. Use the Account.Price_Book__c lookup to get the Pricebook2 ID.
+        3. Query PricebookEntry products from those Pricebook2 IDs.
+        4. Output DataFrame compatible with SimilarityPricePredictor.load_data().
+        
+        Returns:
+            DataFrame with pricing data from Tier 1 customer price books
+        """
+        # Step 1: Query Tier 1 Accounts with Price Books
+        account_query = """
+        SELECT
+            Id,
+            Account_Code__c,
+            Nhom_Khu_vuc_KH__c,
+            BillingAddress,
+            Price_Book__c,
+            RecordType.Name
+        FROM Account
+        WHERE RecordType.Name LIKE '1%'
+            AND Account_Code__c != null
+            AND Price_Book__c != null
+        """
+        
+        account_result = self.sf.query_all(account_query)
+        account_records = account_result.get("records", [])
+        
+        if not account_records:
+            return pd.DataFrame()
+        
+        # Build lookup: Pricebook2Id -> Account metadata
+        pricebook_to_accounts = {}  # pricebook_id -> list of account info
+        pricebook_ids = set()
+        for acc in account_records:
+            pb_id = acc.get("Price_Book__c")
+            if pb_id:
+                pricebook_ids.add(pb_id)
+                acc_info = {
+                    "account_code": acc.get("Account_Code__c"),
+                    "customer_regional_group": acc.get("Nhom_Khu_vuc_KH__c"),
+                    "billing_country": (acc.get("BillingAddress") or {}).get("country"),
+                }
+                if pb_id not in pricebook_to_accounts:
+                    pricebook_to_accounts[pb_id] = acc_info
+        
+        if not pricebook_ids:
+            return pd.DataFrame()
+        
+        # Step 2: Query PricebookEntry products from those Price Books
+        # SOQL IN clause has a limit of ~20000 IDs, batch if needed
+        pricebook_id_list = list(pricebook_ids)
+        all_data = []
+        
+        # Process in batches of 200 IDs to avoid SOQL length limits
+        batch_size = 200
+        for i in range(0, len(pricebook_id_list), batch_size):
+            batch_ids = pricebook_id_list[i:i + batch_size]
+            id_str = "','".join(batch_ids)
+            
+            entry_query = f"""
+            SELECT
+                Id,
+                Name,
+                UnitPrice,
+                Charge_Unit__c,
+                Unit_Price__c,
+                ProductCode,
+                Product2Id,
+                Product2.Name,
+                Product2.ProductCode,
+                Product2.StockKeepingUnit,
+                Product2.Description,
+                Product2.Family,
+                Product2.STONE_Class__c,
+                Product2.Long__c,
+                Product2.Width__c,
+                Product2.High__c,
+                Product2.Packing__c,
+                Product2.specific_gravity__c,
+                Product2.Bottom_cladding_coefficient__c,
+                Product2.Product_description_in_Vietnamese__c,
+                Pricebook2Id,
+                Pricebook2.Name,
+                IsActive,
+                CreatedDate,
+                LastModifiedDate
+            FROM PricebookEntry
+            WHERE Pricebook2Id IN ('{id_str}')
+                AND UnitPrice > 0
+                AND IsActive = true
+            ORDER BY CreatedDate DESC
+            """
+            
+            result = self.sf.query_all(entry_query)
+            records = result.get("records", [])
+            
+            for r in records:
+                product = r.get("Product2") or {}
+                pricebook = r.get("Pricebook2") or {}
+                pb_id = r.get("Pricebook2Id")
+                
+                # Get Account metadata for this pricebook
+                acc_info = pricebook_to_accounts.get(pb_id, {})
+                
+                # Use product dimensions
+                length = product.get("Long__c") or 0
+                width = product.get("Width__c") or 0
+                height = product.get("High__c") or 0
+                volume_m3 = (length * width * height) / 1000000
+                area_m2 = (length * width) / 10000
+                
+                unit_price = r.get("UnitPrice") or 0
+                # Unit_Price__c (picklist) is the primary charge unit field;
+                # Charge_Unit__c is a fallback (often null in PricebookEntry)
+                charge_unit = r.get("Unit_Price__c") or r.get("Charge_Unit__c") or "USD/PC"
+                specific_gravity = product.get("specific_gravity__c") or 2.8
+                hs_coefficient = product.get("Bottom_cladding_coefficient__c")
+                
+                # Calculate price per m3
+                if charge_unit == "USD/M2" and height > 0:
+                    price_m3 = unit_price * 100 / height
+                elif charge_unit == "USD/PC" and volume_m3 > 0:
+                    price_m3 = unit_price / volume_m3
+                elif charge_unit == "USD/TON":
+                    coeff = hs_coefficient or 1.1
+                    price_m3 = unit_price * specific_gravity * coeff
+                elif charge_unit == "USD/ML" and width > 0 and height > 0:
+                    price_m3 = unit_price * 10000 / (width * height)
+                else:
+                    price_m3 = unit_price
+                
+                # Classify segment
+                if price_m3 >= 1500:
+                    segment = "Super premium"
+                elif price_m3 >= 800:
+                    segment = "Premium"
+                elif price_m3 >= 400:
+                    segment = "Common"
+                else:
+                    segment = "Economy"
+                
+                # Extract fiscal year from CreatedDate
+                created_date = r.get("CreatedDate")
+                fy_year = None
+                if created_date:
+                    try:
+                        dt = datetime.fromisoformat(created_date.replace('Z', '+00:00'))
+                        fy_year = dt.year
+                    except:
+                        pass
+                
+                sku = product.get("StockKeepingUnit", "")
+                
+                all_data.append({
+                    # Fields matching contract_products schema for predictor compatibility
+                    "contract_product_name": r.get("Name"),
+                    "contract_name": pricebook.get("Name"),  # Price Book name
+                    "account_code": acc_info.get("account_code"),
+                    "customer_regional_group": acc_info.get("customer_regional_group"),
+                    "billing_country": acc_info.get("billing_country"),
+                    "stone_color_type": extract_stone_code(sku),
+                    "sku": sku,
+                    "family": product.get("Family"),
+                    "segment": segment,
+                    "created_date": created_date,
+                    "fy_year": fy_year,
+                    "product_description": product.get("Description"),
+                    "product_description_vn": product.get("Product_description_in_Vietnamese__c"),
+                    "specific_gravity": specific_gravity,
+                    "hs_coefficient": hs_coefficient,
+                    "length_cm": length,
+                    "width_cm": width,
+                    "height_cm": height,
+                    "quantity": None,
+                    "crates": None,
+                    "m2": area_m2,
+                    "m3": volume_m3,
+                    "ml": None,
+                    "tons": None,
+                    "sales_price": unit_price,  # Map UnitPrice -> sales_price
+                    "charge_unit": charge_unit,
+                    "total_price_usd": None,
+                    "price_m3": round(price_m3, 2),
+                    "volume_m3": volume_m3,
+                    "area_m2": area_m2,
+                    # Processing and application from SKU
+                    "processing_code": extract_processing_code(sku)[0],
+                    "processing_name": extract_processing_code(sku)[1],
+                    "application_code": extract_application_code(sku)[0],
+                    "application": extract_application_code(sku)[1],
+                    "application_vn": extract_application_code(sku)[2],
+                    # Price book specific fields
+                    "pricebook_id": pb_id,
+                    "pricebook_name": pricebook.get("Name"),
+                    "data_source": "pricebook",
+                })
+        
+        return pd.DataFrame(all_data)
+    
     def get_combined_pricing_data(self) -> pd.DataFrame:
         """
         Get combined pricing data from multiple sources for ML training.

@@ -3426,6 +3426,8 @@ def main():
         st.session_state.model_metrics = None
     if 'data_loaded' not in st.session_state:
         st.session_state.data_loaded = False
+    if 'data_source' not in st.session_state:
+        st.session_state.data_source = 'contract'
     
     # Auto-load data on first app launch
     if not st.session_state.data_loaded and SALESFORCE_AVAILABLE:
@@ -3448,8 +3450,21 @@ def main():
         st.markdown("## 💎 Stone Price Predictor")
         st.title("⚙️ Cấu hình")
         
-        # Data source - Salesforce only
-        st.markdown("**Nguồn dữ liệu:** Salesforce Contract Products")
+        # Data source selector
+        data_source_options = {
+            'contract': 'Salesforce Contract Products',
+            'pricebook': 'Salesforce Price Book (KH Tier 1)',
+            'combined': 'Kết hợp (Contract + Price Book)',
+        }
+        selected_source = st.radio(
+            "Nguồn dữ liệu",
+            options=list(data_source_options.keys()),
+            format_func=lambda x: data_source_options[x],
+            index=0,
+            help="Contract Products: dữ liệu từ hợp đồng.\n\nPrice Book (KH Tier 1): dữ liệu từ bảng giá mới nhất của tất cả khách hàng Tier 1.\n\nKết hợp: gộp cả hai nguồn dữ liệu."
+        )
+        st.session_state.data_source = selected_source
+        st.markdown(f"**Nguồn dữ liệu:** {data_source_options[selected_source]}")
         
         # Optional account code filter for Salesforce
         account_filter = st.text_input(
@@ -3462,9 +3477,16 @@ def main():
             with st.spinner("Đang tải và xử lý dữ liệu..."):
                 if SALESFORCE_AVAILABLE:
                     try:
-                        # Step 1: Load data from Salesforce
+                        # Step 1: Load data from Salesforce based on selected source
                         loader = SalesforceDataLoader()
-                        df = loader.get_contract_products(account_code=account_filter if account_filter else None)
+                        if st.session_state.data_source == 'pricebook':
+                            df = loader.get_latest_pricebook_products()
+                        elif st.session_state.data_source == 'combined':
+                            df_contract = loader.get_contract_products(account_code=account_filter if account_filter else None)
+                            df_pricebook = loader.get_latest_pricebook_products()
+                            df = pd.concat([df_contract, df_pricebook], ignore_index=True)
+                        else:
+                            df = loader.get_contract_products(account_code=account_filter if account_filter else None)
                         if len(df) > 0:
                             st.session_state.data = df
                             
